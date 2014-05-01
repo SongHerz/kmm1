@@ -22,8 +22,6 @@
 #include "util.h"
 
 
-FILE *fp_file;
-
 //////////////////////////////////////////////
 // TODO: Now, a C file is included
 /////////////////////////////////////////////
@@ -198,14 +196,6 @@ static void hexdump_error(char *prefix, uint8_t *buff, int len)
 	applog_hexdump(prefix, buff, len, LOG_ERR);
 }
 
-static void flush_spi(struct A1_chain *a1)
-{
-	/*memset(a1->spi_tx, 0, 64);
-	applog(LOG_ERR, "spi tp7");
-	spi_transfer(a1->spi_ctx, a1->spi_tx, a1->spi_rx, 64);
-	*/
-}
-
 
 /********** upper layer SPI functions */
 static uint8_t *exec_cmd(struct A1_chain *a1,
@@ -328,6 +318,9 @@ static uint8_t *cmd_READ_RESULT_BCAST(struct A1_chain *a1)
 		
 		//
 		
+        if (!chip_reset( a1->spi_ctx)) {
+            applog(LOG_ERR, "Failed to reset chip!");
+        }
 		spi_transfer(a1->spi_ctx, cmdrst_tx, cmdrst_rx , 2);
 		//config pll 
 		int chip_rate = (CHIP_FREQ-10)/10;
@@ -548,18 +541,6 @@ static uint8_t *create_job(uint8_t chip_id, uint8_t job_id, struct work *work)
 	job_2[88] = 0x80|44;
 	job_2[89] = 0x80|44;
 	
-	
-	//fprintf(fp_file , "set:job\r\n" );
-	//fprintf(fp_file , "address\r\n" );
-	//for(i=0;i<45;i++){
-		//fprintf(fp_file , " %02x " ,job_2[i*2] );
-	//}
-	//fprintf(fp_file , "\r\n" );
-	//fprintf(fp_file , "reg data \r\n" );
-	//for(i=0;i<45;i++){
-		//fprintf(fp_file , " %02x " ,job_2[i*2+1]);
-	//}
-	//fprintf(fp_file , "\r\n" );
 	return job_2;
 	
 }
@@ -608,7 +589,6 @@ static char get_nonce(struct A1_chain *a1, uint8_t *nonce,
 		*(nonce + 1) = *(ret+7);
 		*(nonce + 2) = *(ret+5);
 		*(nonce + 3) = *(ret+3);
-		//fprintf(fp_file, " calc nonoce is %x %x %x %x" , (*nonce),*(nonce+1),*(nonce+2),*(nonce+3) );
 		return 2;
 	}
 	return -1;
@@ -692,6 +672,11 @@ static bool A1_detect_one_chain(struct spi_config *cfg)
     if (ctx == NULL)
         return false;
 
+    if (!chip_reset(ctx)) {
+        applog(LOG_ERR, "Failed to reset chip");
+        return false;
+    }
+
     applog(LOG_WARNING, "checking board %d...", board_id);
 
     struct A1_chain *a1 = init_A1_chain(ctx, board_id);
@@ -728,6 +713,7 @@ void A1_detect(bool hotplug)
     struct spi_config cfg = default_spi_config;
     cfg.mode = SPI_MODE_0;
     cfg.speed = 500 * 1000;
+    cfg.delay = 10;         // TODO: may use default value
     A1_detect_one_chain(&cfg);
 	
 	//config all pll here
@@ -754,7 +740,6 @@ static int64_t A1_scanwork(struct thr_info *thr)
 	struct A1_chain *a1 = cgpu->device_data;
 	int32_t nonce_ranges_processed = 0;
 
-	fp_file = fopen("a.txt","ab+");
 	applog(LOG_DEBUG, "A1 running scanwork");
 	uint32_t nonce;
 	uint8_t chip_id;

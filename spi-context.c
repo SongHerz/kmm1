@@ -19,7 +19,6 @@
 #include <assert.h>
 #include <unistd.h>
 
-
 struct spi_ctx *spi_init(struct spi_config *config)
 {
 	char dev_fname[PATH_MAX];
@@ -27,20 +26,18 @@ struct spi_ctx *spi_init(struct spi_config *config)
 	unsigned char cmdrst_tx[2];
 	
 	struct spi_ctx *ctx;
-	char tt = 0x5a;
-	
-	
+
 	if (config == NULL)
 		return NULL;
 
-		
 	sprintf(dev_fname, SPI_DEVICE_TEMPLATE, config->bus, config->cs_line);
-	
+
 	int fd = open(dev_fname, O_RDWR);
 	if (fd < 0) {
 		applog(LOG_ERR, "SPI: Can not open SPI device %s", dev_fname);
 		return NULL;
 	}
+
 	if ((ioctl(fd, SPI_IOC_WR_MODE, &config->mode) < 0) ||
 	    (ioctl(fd, SPI_IOC_RD_MODE, &config->mode) < 0) ||
 	    (ioctl(fd, SPI_IOC_WR_BITS_PER_WORD, &config->bits) < 0) ||
@@ -56,15 +53,15 @@ struct spi_ctx *spi_init(struct spi_config *config)
 	unsigned char send_data_tx[2];
 	unsigned char send_data_rx[2];
 	//reset chip here
-	send_data_tx[0] = 0xff;		// 'b10111111&address  
-	send_data_tx[1] = 0xff;
-	spi_send_data.tx_buf = (unsigned long)send_data_tx;
-    spi_send_data.rx_buf = (unsigned long)send_data_rx;
-    spi_send_data.len = ARRAY_SIZE(send_data_tx);
-    spi_send_data.delay_usecs = 10;
-    spi_send_data.speed_hz = config->speed;
-    spi_send_data.bits_per_word = config->bits;
-	ioctl(fd, SPI_IOC_MESSAGE(1), &spi_send_data);
+	// send_data_tx[0] = 0xff;		// 'b10111111&address  
+	// send_data_tx[1] = 0xff;
+	// spi_send_data.tx_buf = (unsigned long)send_data_tx;
+    // spi_send_data.rx_buf = (unsigned long)send_data_rx;
+    // spi_send_data.len = ARRAY_SIZE(send_data_tx);
+    // spi_send_data.delay_usecs = 10;
+    // spi_send_data.speed_hz = config->speed;
+    // spi_send_data.bits_per_word = config->bits;
+	// ioctl(fd, SPI_IOC_MESSAGE(1), &spi_send_data);
 	
 	//delay(100);
 	
@@ -142,15 +139,6 @@ extern void spi_exit(struct spi_ctx *ctx)
 	free(ctx);
 }
 
-
-extern bool spi_encode(){ 		//encode package
-
-
-}
-
-extern bool spi_decode(){		//decode package
-}
-
 extern bool spi_transfer(struct spi_ctx *ctx, uint8_t *txbuf,
 			 uint8_t *rxbuf, int len)
 {
@@ -161,8 +149,7 @@ extern bool spi_transfer(struct spi_ctx *ctx, uint8_t *txbuf,
 		memset(rxbuf, 0xff, len);
 
 	ret = len;
-	
-	
+
 	xfr.tx_buf = (unsigned long)txbuf;
 	xfr.rx_buf = (unsigned long)rxbuf;
 	xfr.len = len;
@@ -173,12 +160,6 @@ extern bool spi_transfer(struct spi_ctx *ctx, uint8_t *txbuf,
 	xfr.pad = 0;
 
 	ret = ioctl(ctx->fd, SPI_IOC_MESSAGE(1), &xfr);
-	int i;
-	/*for(i=0;i<len;i++){
-			applog(LOG_ERR, "SPI send %x", *(txbuf+i));
-	}
-	*/
-	
 	if (ret < 1)
 		applog(LOG_ERR, "SPI: ioctl error on SPI device: %d", ret);
 
