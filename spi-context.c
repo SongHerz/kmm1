@@ -21,6 +21,8 @@
 #include <termios.h>
 
 
+
+
 int fp_uart;
 	
 
@@ -184,8 +186,10 @@ struct spi_ctx *spi_init(struct spi_config *config)
 	//write PD
 	//printf("config pll\n");
 	send_data_tx[0] = 0xad;		// 'b10111111&address  
-	cmdrst_tx[1] = 0x9d;
-//#endif
+	//send_data_tx[1] = 0x9d;
+	unsigned char chip_rate = (CHIP_FREQ-10)/10;
+	send_data_tx[1] = 0x80|chip_rate;
+	//#endif
 	spi_send_data.tx_buf = (unsigned long)send_data_tx;
     spi_send_data.rx_buf = (unsigned long)send_data_rx;
     spi_send_data.len = ARRAY_SIZE(send_data_tx);
@@ -199,8 +203,8 @@ struct spi_ctx *spi_init(struct spi_config *config)
 	applog(LOG_ERR, "SPI send %x", send_data_tx[1]);
 	
 	send_data_tx[0] = 0xad;		// 'b10111111&address  
-	cmdrst_tx[1] = 0x1d;
-	
+	//send_data_tx[1] = 0x1d;
+	send_data_tx[1] = 0x7f&chip_rate;
 
 
 	spi_send_data.tx_buf = (unsigned long)send_data_tx;

@@ -15,6 +15,9 @@
 #define DEFAULT_SPI_DELAY_USECS		0
 
 
+#define  CHIP_FREQ 200
+
+
 #define CLK_400MHZ
 
 struct spi_config {

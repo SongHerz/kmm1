@@ -34,7 +34,7 @@ int fp_uart;
  * to support different variants of A1 products
  */
 
-#define MAX_KM_IC	4
+#define MAX_KM_IC	2
  
 #define MAX_BOARDS 1
 bool a1_board_selector_init() { return true; }
@@ -363,8 +363,12 @@ static uint8_t *cmd_READ_RESULT_BCAST(struct A1_chain *a1)
 		
 		spi_transfer(a1->spi_ctx, cmdrst_tx, cmdrst_rx , 2);
 		//config pll 
+		int chip_rate = (CHIP_FREQ-10)/10;
+		cmdrst_tx[1] = (unsigned char)(chip_rate|0x80);
+		
+		
 		cmdrst_tx[0] = 0xad;
-		cmdrst_tx[1] = 0x9d;
+		//cmdrst_tx[1] = 0x9d;
 	
 
 
@@ -377,10 +381,12 @@ static uint8_t *cmd_READ_RESULT_BCAST(struct A1_chain *a1)
 			if( flag > 999 )
 				break;
 		}
+		
+		
 		cmdrst_tx[0] = 0xad;
-		cmdrst_tx[1] = 0x1d;
-
-			spi_transfer(a1->spi_ctx, cmdrst_tx, cmdrst_rx , 2);
+		//cmdrst_tx[1] = 0x1d;
+		cmdrst_tx[1] = (unsigned char)(chip_rate&0x7f);
+		spi_transfer(a1->spi_ctx, cmdrst_tx, cmdrst_rx , 2);
 		
 		//wait for pll
 		for(delay = 0 ; delay < 100000; delay ++){
