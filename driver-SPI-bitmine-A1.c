@@ -164,26 +164,8 @@ enum A1_command {
 	A1_READ_REG_RESP	= 0x1a,
 };
 
-/********** config paramters */
-struct A1_config_options {
-	int ref_clk_khz;
-	int sys_clk_khz;
-	int spi_clk_khz;
-	/* limit chip chain to this number of chips (testing only) */
-	int override_chip_num;
-};
 
-/*
- * for now, we have one global config, defaulting values:
- * - ref_clk 16MHz / sys_clk 800MHz
- * - 2000 kHz SPI clock
- */
-static struct A1_config_options config_options = {
-	.ref_clk_khz = 16000, .sys_clk_khz = 800000, .spi_clk_khz = 2000,
-};
 
-/* override values with --bitmine-a1-options ref:sys:spi: - use 0 for default */
-static struct A1_config_options *parsed_config_options;
 
 /********** temporary helper for hexdumping SPI traffic */
 static void applog_hexdump(char *prefix, uint8_t *buff, int len, int level)
@@ -679,12 +661,6 @@ struct A1_chain *init_A1_chain(struct spi_ctx *ctx, int board_id)
 
 	/* override max number of active chips if requested */
 	a1->num_active_chips = a1->num_chips;
-	if (config_options.override_chip_num > 0 &&
-	    a1->num_chips > config_options.override_chip_num) {
-		a1->num_active_chips = config_options.override_chip_num;
-		applog(LOG_WARNING, "%d: limiting chain to %d chips",
-		       a1->board_id, a1->num_active_chips);
-	}
 
 	a1->chips = calloc(a1->num_active_chips, sizeof(struct A1_chip));
 	assert (a1->chips != NULL);
@@ -741,44 +717,17 @@ static bool A1_detect_one_chain(struct spi_config *cfg)
 /* Probe SPI channel and register chip chain */
 void A1_detect(bool hotplug)
 {
-	int bus;
-	int cs_line;
-	int board_id;
-
 	/* no hotplug support for now */
 	if (hotplug)
 		return;
 
-	if (opt_bitmine_a1_options != NULL && parsed_config_options == NULL) {
-		int ref_clk = 0;
-		int sys_clk = 0;
-		int spi_clk = 0;
-		int override_chip_num = 0;
 
-		sscanf(opt_bitmine_a1_options, "%d:%d:%d:%d",
-		       &ref_clk, &sys_clk, &spi_clk,  &override_chip_num);
-		if (ref_clk != 0)
-			config_options.ref_clk_khz = ref_clk;
-		if (sys_clk != 0)
-			config_options.sys_clk_khz = sys_clk;
-		if (spi_clk != 0)
-			config_options.spi_clk_khz = spi_clk;
-		if (override_chip_num != 0)
-			config_options.override_chip_num = override_chip_num;
-
-		/* config options are global, scan them once */
-		parsed_config_options = &config_options;
-	}
 
 	applog(LOG_ERR, "A1 detect");
 	
-    bus = 0;
-    cs_line = 0;
     struct spi_config cfg = default_spi_config;
     cfg.mode = SPI_MODE_0;
     cfg.speed = 500 * 1000;
-    cfg.bus = bus;
-    cfg.cs_line = cs_line;
     A1_detect_one_chain(&cfg);
 	
 	//config all pll here
