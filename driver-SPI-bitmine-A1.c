@@ -198,59 +198,59 @@ static void hexdump_error(char *prefix, uint8_t *buff, int len)
 
 
 /********** upper layer SPI functions */
-static uint8_t *exec_cmd(struct A1_chain *a1,
-			  uint8_t cmd, uint8_t chip_id,
-			  uint8_t *data, uint8_t len,
-			  uint8_t resp_len)
-{
-	int tx_len = 4 + len;
-	memset(a1->spi_tx, 0, tx_len);
-	a1->spi_tx[0] = cmd;
-	a1->spi_tx[1] = chip_id;
-
-	if (data != NULL)
-		memcpy(a1->spi_tx + 2, data, len);
-	applog(LOG_ERR, "spi tp8");
-	bool retval = spi_transfer(a1->spi_ctx, a1->spi_tx, a1->spi_rx, tx_len);
-	hexdump("send: TX", a1->spi_tx, tx_len);
-	hexdump("send: RX", a1->spi_rx, tx_len);
-
-	int poll_len = resp_len;
-	if (chip_id == 0) {
-		if (a1->num_chips == 0) {
-			applog(LOG_ERR, "%d: unknown chips in chain, assuming 8",
-			       a1->board_id);
-			poll_len += 32;
-		}
-		poll_len += 4 * a1->num_chips;
-	}
-	else {
-		poll_len += 4 * chip_id - 2;
-	}
-	applog(LOG_ERR, "spi tp9");
-	assert(spi_transfer(a1->spi_ctx, NULL, a1->spi_rx + tx_len, poll_len));
-	hexdump("poll: RX", a1->spi_rx + tx_len, poll_len);
-	int ack_len = tx_len + resp_len;
-	int ack_pos = tx_len + poll_len - ack_len;
-	hexdump("poll: ACK", a1->spi_rx + ack_pos, ack_len - 2);
-
-	return (a1->spi_rx + ack_pos);
-}
+// static uint8_t *exec_cmd(struct A1_chain *a1,
+// 			  uint8_t cmd, uint8_t chip_id,
+// 			  uint8_t *data, uint8_t len,
+// 			  uint8_t resp_len)
+// {
+// 	int tx_len = 4 + len;
+// 	memset(a1->spi_tx, 0, tx_len);
+// 	a1->spi_tx[0] = cmd;
+// 	a1->spi_tx[1] = chip_id;
+// 
+// 	if (data != NULL)
+// 		memcpy(a1->spi_tx + 2, data, len);
+// 	applog(LOG_ERR, "spi tp8");
+// 	bool retval = spi_transfer(a1->spi_ctx, a1->spi_tx, a1->spi_rx, tx_len);
+// 	hexdump("send: TX", a1->spi_tx, tx_len);
+// 	hexdump("send: RX", a1->spi_rx, tx_len);
+// 
+// 	int poll_len = resp_len;
+// 	if (chip_id == 0) {
+// 		if (a1->num_chips == 0) {
+// 			applog(LOG_ERR, "%d: unknown chips in chain, assuming 8",
+// 			       a1->board_id);
+// 			poll_len += 32;
+// 		}
+// 		poll_len += 4 * a1->num_chips;
+// 	}
+// 	else {
+// 		poll_len += 4 * chip_id - 2;
+// 	}
+// 	applog(LOG_ERR, "spi tp9");
+// 	assert(spi_transfer(a1->spi_ctx, NULL, a1->spi_rx + tx_len, poll_len));
+// 	hexdump("poll: RX", a1->spi_rx + tx_len, poll_len);
+// 	int ack_len = tx_len + resp_len;
+// 	int ack_pos = tx_len + poll_len - ack_len;
+// 	hexdump("poll: ACK", a1->spi_rx + ack_pos, ack_len - 2);
+// 
+// 	return (a1->spi_rx + ack_pos);
+// }
 
 
 /********** A1 SPI commands */
-static uint8_t *cmd_RESET_BCAST(struct A1_chain *a1, uint8_t strategy)
-{
-	static uint8_t s[2];
-	s[0] = strategy;
-	s[1] = strategy;
-	uint8_t *ret = exec_cmd(a1, A1_RESET, 0x00, s, 2, 0);
-	if (ret == NULL || (ret[0] != A1_RESET && a1->num_chips != 0)) {
-		applog(LOG_ERR, "%d: cmd_RESET_BCAST failed", a1->board_id);
-		return NULL;
-	}
-	return ret;
-}
+// static uint8_t *cmd_RESET_BCAST(struct A1_chain *a1, uint8_t strategy)
+// {
+// 	static uint8_t s[2];
+// 	s[0] = strategy;
+// 	s[1] = strategy;
+// 	uint8_t *ret = exec_cmd(a1, A1_RESET, 0x00, s, 2, 0);
+// 	if (ret == NULL || (ret[0] != A1_RESET && a1->num_chips != 0)) {
+// 		applog(LOG_ERR, "%d: cmd_RESET_BCAST failed", a1->board_id);
+// 		return NULL;
+// 	}
+// 	return ret;
+// }
 
 static uint8_t *cmd_READ_RESULT_BCAST(struct A1_chain *a1)
 {
@@ -336,29 +336,6 @@ static uint8_t *cmd_READ_RESULT_BCAST(struct A1_chain *a1)
 	//applog(LOG_ERR, "%d: cmd_READ_RESULT_BCAST failed", a1->board_id);
 	//return NULL;
 }
-
-static uint8_t *cmd_WRITE_REG(struct A1_chain *a1, uint8_t chip, uint8_t *reg)
-{
-	uint8_t *ret = exec_cmd(a1, A1_WRITE_REG, chip, reg, 6, 0);
-	if (ret == NULL || ret[0] != A1_WRITE_REG) {
-		applog(LOG_ERR, "%d: cmd_WRITE_REG failed", a1->board_id);
-		return NULL;
-	}
-	return ret;
-}
-
-static uint8_t *cmd_READ_REG(struct A1_chain *a1, uint8_t chip)
-{
-	uint8_t *ret = exec_cmd(a1, A1_READ_REG, chip, NULL, 0, 6);
-	if (ret == NULL || ret[0] != A1_READ_REG_RESP || ret[1] != chip) {
-		applog(LOG_ERR, "%d: cmd_READ_REG chip %d failed",
-		       a1->board_id, chip);
-		return NULL;
-	}
-	memcpy(a1->spi_rx, ret, 8);
-	return ret;
-}
-
 
 
 static uint8_t *cmd_WRITE_JOB(struct A1_chain *a1, uint8_t chip_id,
@@ -553,7 +530,8 @@ static char get_nonce(struct A1_chain *a1, uint8_t *nonce,
 static bool abort_work(struct A1_chain *a1)
 {
 	/* drop jobs already queued: reset strategy 0xed */
-	return cmd_RESET_BCAST(a1, 0xed);
+	// return cmd_RESET_BCAST(a1, 0xed);
+    return true;
 }
 
 /********** driver interface */
@@ -763,7 +741,7 @@ re_req:
 						for(i=0;i<4;i++){
 							if(!submit_nonce(thr, work_pool_p, nonce)){
 								applog(LOG_ERR, "get nonce ID %d state %d  buf address is %x", j , work_state[j] , work_pool_p);
-								applog(LOG_ERR, "hw err nonce is %x" , nonce);
+								applog(LOG_ERR, "hw err nonce is %x, line: %d" , nonce, __LINE__);
 								nonce = nonce + 1;
 							} else{
 								applog(LOG_ERR, " submit nonce ok ID is %d nonce is %x addr is %x" , j ,nonce , work_pool_p);
@@ -778,7 +756,7 @@ re_req:
 						for(i=0;i<4;i++){
 							if(!submit_nonce(thr, work_pool_p, nonce)){
 								applog(LOG_ERR, "get nonce ID %d state %d  buf address is %x", j , work_state[j] , work_pool_p);
-								applog(LOG_ERR, "hw err nonce is %x" , nonce);
+								applog(LOG_ERR, "hw err nonce is %x, line: %d" , nonce, __LINE__);
 								nonce = nonce + 1;
 							} else {
 								work_state[j] = 0;

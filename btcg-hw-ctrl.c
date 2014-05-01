@@ -16,6 +16,7 @@
 
 // SPI registers
 #define PLL_ADDR    (uint8_t)(45)
+#define STATUS_ADDR (uint8_t)(63)
 
 // PLL frequency
 // frequence in MHZ
@@ -54,12 +55,34 @@ static bool __chip_set_pll(struct spi_ctx *ctx, int clk_core) {
     if (!spi_transfer(ctx, tx, dummy, sizeof(tx))) {
         return false;
     }
+    // sleep 0.3 ms, after setting PLL
     usleep(300);
     return true;
 }
 
 bool chip_reset(struct spi_ctx *ctx) {
     return __chip_sw_reset(ctx) && __chip_set_pll(ctx, 200);
+}
+
+#define STATUS_W_ALLOW(status)  ((status) & 0x1)
+#define STATUS_R_READY(status)  ((status) & 0x2)
+#define STATUS_NONCE_GRP0_RDY(status)   (((status) >> 2) & 0x01)
+#define STATUS_NONCE_GRP1_RDY(status)   (((status) >> 3) & 0x01)
+#define STATUS_NONCE_GRP2_RDY(status)   (((status) >> 4) & 0x01)
+#define STATUS_NONCE_GRP3_RDY(status)   (((status) >> 5) & 0x01)
+
+bool chip_status(struct spi_ctx *ctx, int *status) {
+    uint8_t tx[2];
+    uint8_t rx[2];
+
+    tx[0] = CMD_WR | STATUS_ADDR;
+    tx[1] = 0xff;   // any data
+
+    if (!spi_transfer(ctx, tx, rx, sizeof(tx))) {
+        return false;
+    }
+    *status = rx[1];
+    return true;
 }
 
 
