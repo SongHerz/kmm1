@@ -321,39 +321,39 @@ static uint8_t *cmd_READ_RESULT_BCAST(struct A1_chain *a1)
         if (!chip_reset( a1->spi_ctx)) {
             applog(LOG_ERR, "Failed to reset chip!");
         }
-		spi_transfer(a1->spi_ctx, cmdrst_tx, cmdrst_rx , 2);
-		//config pll 
-		int chip_rate = (CHIP_FREQ-10)/10;
-		cmdrst_tx[1] = (unsigned char)(chip_rate|0x80);
-		
-		
-		cmdrst_tx[0] = 0xad;
-		//cmdrst_tx[1] = 0x9d;
+		// spi_transfer(a1->spi_ctx, cmdrst_tx, cmdrst_rx , 2);
+		// //config pll 
+		// int chip_rate = (CHIP_FREQ-10)/10;
+		// cmdrst_tx[1] = (unsigned char)(chip_rate|0x80);
+		// 
+		// 
+		// cmdrst_tx[0] = 0xad;
+		// //cmdrst_tx[1] = 0x9d;
 	
 
 
-		spi_transfer(a1->spi_ctx, cmdrst_tx, cmdrst_rx , 2);
+		// spi_transfer(a1->spi_ctx, cmdrst_tx, cmdrst_rx , 2);
 		
 		
 		//wait for pll
-		for(delay = 0 ; delay < 100000; delay ++){
-			flag++;
-			if( flag > 999 )
-				break;
-		}
+		// for(delay = 0 ; delay < 100000; delay ++){
+		// 	flag++;
+		// 	if( flag > 999 )
+		// 		break;
+		// }
 		
 		
-		cmdrst_tx[0] = 0xad;
-		//cmdrst_tx[1] = 0x1d;
-		cmdrst_tx[1] = (unsigned char)(chip_rate&0x7f);
-		spi_transfer(a1->spi_ctx, cmdrst_tx, cmdrst_rx , 2);
-		
-		//wait for pll
-		for(delay = 0 ; delay < 100000; delay ++){
-			flag++;
-			if( flag > 999 )
-				break;
-		}
+		// cmdrst_tx[0] = 0xad;
+		// //cmdrst_tx[1] = 0x1d;
+		// cmdrst_tx[1] = (unsigned char)(chip_rate&0x7f);
+		// spi_transfer(a1->spi_ctx, cmdrst_tx, cmdrst_rx , 2);
+		// 
+		// //wait for pll
+		// for(delay = 0 ; delay < 100000; delay ++){
+		// 	flag++;
+		// 	if( flag > 999 )
+		// 		break;
+		// }
 		
 		
 		return a1->spi_rx;						//read 4 bytes nonce

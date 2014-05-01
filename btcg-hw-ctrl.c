@@ -9,10 +9,13 @@
 ///////////////////////////////////////////////////
 
 // SPI commands
-#define CMD_CK    (uint8_t)(0)              // 2'b00xx_xxxx
-#define CMD_RD    (uint8_t)(0x40)           // 2'b01xx_xxxx
-#define CMD_WR    (uint8_t)(0x80)           // 2'b10xx_xxxx
-#define CMD_RST   (uint8_t)(0x40 | 0x80)    // 2'b11xx_xxxx
+#define CMD_CK  (uint8_t)(0)              // 2'b00xx_xxxx
+#define CMD_RD  (uint8_t)(0x40)           // 2'b01xx_xxxx
+#define CMD_WR  (uint8_t)(0x80)           // 2'b10xx_xxxx
+#define CMD_RST (uint8_t)(0x40 | 0x80)    // 2'b11xx_xxxx
+
+// SPI registers
+#define PLL_ADDR    (uint8_t)(45)
 
 // PLL frequency
 // frequence in MHZ
@@ -30,11 +33,33 @@ static uint8_t pll_conf( int clk_core) {
     return f6f0;
 }
 
-bool chip_reset(struct spi_ctx *ctx) {
+static bool __chip_sw_reset(struct spi_ctx *ctx) {
     uint8_t tx = CMD_RST;
     uint8_t dummy;
 
-    return spi_transfer(ctx, &tx, &dummy, sizeof(tx));
+    return spi_transfer(ctx, &tx, &dummy, 1);
+}
+
+static bool __chip_set_pll(struct spi_ctx *ctx, int clk_core) {
+    uint8_t tx[2];
+    uint8_t dummy[2];
+
+    tx[0] = CMD_WR | PLL_ADDR;
+    tx[1] = 0x80 | pll_conf(clk_core);
+    if (!spi_transfer(ctx, tx, dummy, sizeof(tx))) {
+        return false;
+    }
+
+    tx[1] = 0x00 | pll_conf(clk_core);
+    if (!spi_transfer(ctx, tx, dummy, sizeof(tx))) {
+        return false;
+    }
+    usleep(300);
+    return true;
+}
+
+bool chip_reset(struct spi_ctx *ctx) {
+    return __chip_sw_reset(ctx) && __chip_set_pll(ctx, 200);
 }
 
 
