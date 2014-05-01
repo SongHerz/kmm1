@@ -36,13 +36,6 @@ int fp_uart;
 
 #define MAX_KM_IC	2
  
-#define MAX_BOARDS 1
-bool a1_board_selector_init() { return true; }
-void a1_board_selector_exit() {}
-void a1_board_selector_reset_all_boards() {}
-void a1_board_selector_select_board(uint8_t b) {};
-void unlock_board_selector() {}
-
 ///////////////////////////////////////////////////////////////////////////
 
 
@@ -499,24 +492,6 @@ static uint8_t *cmd_WRITE_JOB(struct A1_chain *a1, uint8_t chip_id,
 }
 
 /********** A1 low level functions */
-static bool A1_hw_reset(void)
-{
-	/*
-	 * TODO: issue cold reset
-	 *
-	 * NOTE: suggested sequence
-	 * a) reset the RSTN pin for at least 1s
-	 * b) release the RSTN pin
-	 * c) wait at least 1s before sending the first CMD
-	 */
-	if (!a1_board_selector_init()) {
-		applog(LOG_ERR, "Failed to init board selector");
-		a1_board_selector_exit();
-		return false;
-	}
-	a1_board_selector_reset_all_boards();
-	return true;
-}
 
 #define MAX_PLL_WAIT_CYCLES 25
 #define PLL_CYCLE_WAIT_TIME 40
@@ -580,86 +555,11 @@ static uint8_t *get_pll_reg(struct A1_chain *a1, int ref_clock_khz,
 	return writereg;
 }
 
-static bool set_pll_config(struct A1_chain *a1, int chip_id,
-			   int ref_clock_khz, int sys_clock_khz)
-{
-	uint8_t *writereg = get_pll_reg(a1, ref_clock_khz, sys_clock_khz);
-	if (writereg == NULL)
-		return false;
-	if (!cmd_WRITE_REG(a1, chip_id, writereg))
-		return false;
-
-	int from, to;
-	if (chip_id == 0) {
-		from = 0;
-		to = a1->num_active_chips;
-	} else {
-		from = chip_id - 1;
-		to = chip_id - 1;
-	}
-	int i;
-	for (i = from; i < to; i++) {
-		int cid = i + 1;
-		if (!check_chip_pll_lock(a1, chip_id, writereg)) {
-			applog(LOG_ERR, "%d: chip %d failed PLL lock",
-			       a1->board_id, cid);
-			return false;
-		}
-	}
-	return true;
-}
 
 #define WEAK_CHIP_THRESHOLD	30
 #define BROKEN_CHIP_THRESHOLD	26
 #define WEAK_CHIP_SYS_CLK	(600 * 1000)
 #define BROKEN_CHIP_SYS_CLK	(400 * 1000)
-static bool check_chip(struct A1_chain *a1, int i)
-{
-	int chip_id = i + 1;
-	int bid = a1->board_id;
-	
-	
-	
-	/*if (!cmd_READ_REG(a1, chip_id)) {
-		applog(LOG_WARNING, "%d: Failed to read register for "
-		       "chip %d -> disabling", bid, chip_id);
-		a1->chips[i].num_cores = 0;
-		a1->chips[i].disabled = 1;
-		return false;;
-	}
-	
-	a1->chips[i].num_cores = a1->spi_rx[7];
-	a1->num_cores += a1->chips[i].num_cores;
-	applog(LOG_WARNING, "%d: Found chip %d with %d active cores",
-	       bid, chip_id, a1->chips[i].num_cores);
-	*/
-	/*jump check chiip
-	if (a1->chips[i].num_cores < BROKEN_CHIP_THRESHOLD) {
-		applog(LOG_WARNING, "%d: broken chip %d with %d active "
-		       "cores (threshold = %d)", bid, chip_id,
-		       a1->chips[i].num_cores, BROKEN_CHIP_THRESHOLD);
-		set_pll_config(a1, chip_id, config_options.ref_clk_khz,
-				BROKEN_CHIP_SYS_CLK);
-		cmd_READ_REG(a1, chip_id);
-		hexdump_error("new.PLL", a1->spi_rx, 8);
-		a1->chips[i].disabled = true;
-		a1->num_cores -= a1->chips[i].num_cores;
-		return false;
-	}
-
-	if (a1->chips[i].num_cores < WEAK_CHIP_THRESHOLD) {
-		applog(LOG_WARNING, "%d: weak chip %d with %d active "
-		       "cores (threshold = %d)", bid,
-		       chip_id, a1->chips[i].num_cores, WEAK_CHIP_THRESHOLD);
-		set_pll_config(a1, chip_id, config_options.ref_clk_khz,
-			       WEAK_CHIP_SYS_CLK);
-		cmd_READ_REG(a1, chip_id);
-		hexdump_error("new.PLL", a1->spi_rx, 8);
-		return false;
-	}
-	*/
-	return true;
-}
 
 /*
  * BIST_START works only once after HW reset, on subsequent calls it
@@ -945,7 +845,6 @@ struct A1_chain *init_A1_chain(struct spi_ctx *ctx, int board_id)
 	a1->spi_ctx = ctx;
 	a1->board_id = board_id;
 
-	//a1->num_chips = chain_detect(a1);
 	a1->num_chips = 32;
 	if (a1->num_chips == 0)
 		goto failure;
@@ -960,10 +859,6 @@ struct A1_chain *init_A1_chain(struct spi_ctx *ctx, int board_id)
 	applog(LOG_WARNING, "spidev%d.%d: %d: Found %d A1 chips",
 	       a1->spi_ctx->config.bus, a1->spi_ctx->config.cs_line,
 	       a1->board_id, a1->num_chips);
-	//jump set pll
-	//if (!set_pll_config(a1, 0, config_options.ref_clk_khz,
-	//		    config_options.sys_clk_khz))
-	//	goto failure;
 
 	/* override max number of active chips if requested */
 	a1->num_active_chips = a1->num_chips;
@@ -976,12 +871,6 @@ struct A1_chain *init_A1_chain(struct spi_ctx *ctx, int board_id)
 
 	a1->chips = calloc(a1->num_active_chips, sizeof(struct A1_chip));
 	assert (a1->chips != NULL);
-
-	//if (!cmd_BIST_FIX_BCAST(a1))
-	//	goto failure;
-
-	for (i = 0; i < a1->num_active_chips; i++)
-		check_chip(a1, i);
 
 	applog(LOG_WARNING, "%d: found %d chips with total %d active cores",
 	       a1->board_id, a1->num_active_chips, a1->num_cores);
@@ -999,42 +888,35 @@ failure:
 static bool A1_detect_one_chain(struct spi_config *cfg)
 {
 	struct cgpu_info *cgpu;
-	int board_id;
+	const int board_id = 0;
 
-	for (board_id = 0; board_id < MAX_BOARDS; board_id++) {
-		struct spi_ctx *ctx = spi_init(cfg);
+    struct spi_ctx *ctx = spi_init(cfg);
 
-		if (ctx == NULL)
-			return false;
+    if (ctx == NULL)
+        return false;
 
-		applog(LOG_WARNING, "checking board %d...", board_id);
-//		a1_board_selector_select_board(board_id);
-//		a1_board_selector_reset_board();
+    applog(LOG_WARNING, "checking board %d...", board_id);
 
-		struct A1_chain *a1 = init_A1_chain(ctx, board_id);
-		unlock_board_selector();
-		if (a1 == NULL)
-			continue;
+    struct A1_chain *a1 = init_A1_chain(ctx, board_id);
+    if (a1 == NULL)
+        return false;
 
-		cgpu = malloc(sizeof(*cgpu));
-		assert(cgpu != NULL);
+    cgpu = malloc(sizeof(*cgpu));
+    assert(cgpu != NULL);
 
-		memset(cgpu, 0, sizeof(*cgpu));
-		cgpu->drv = &bitmineA1_drv;
-		cgpu->name = "BitmineA1";
-		cgpu->threads = 1;
+    memset(cgpu, 0, sizeof(*cgpu));
+    cgpu->drv = &bitmineA1_drv;
+    cgpu->name = "BitmineA1";
+    cgpu->threads = 1;
 
-		cgpu->device_data = a1;
+    cgpu->device_data = a1;
 
-		a1->cgpu = cgpu;
-		add_cgpu(cgpu);
-	}
+    a1->cgpu = cgpu;
+    add_cgpu(cgpu);
 
 	return true;
 }
 
-#define MAX_SPI_BUS	1
-#define MAX_SPI_CS	1
 /* Probe SPI channel and register chip chain */
 void A1_detect(bool hotplug)
 {
@@ -1068,18 +950,15 @@ void A1_detect(bool hotplug)
 	}
 
 	applog(LOG_ERR, "A1 detect");
-	A1_hw_reset();
 	
-	for (bus = 0; bus < MAX_SPI_BUS; bus++) {
-		for (cs_line = 0; cs_line < MAX_SPI_CS; cs_line++) {
-			struct spi_config cfg = default_spi_config;
-			cfg.mode = SPI_MODE_1;
-			cfg.speed = config_options.spi_clk_khz * 1000;
-			cfg.bus = bus;
-			cfg.cs_line = cs_line;
-			A1_detect_one_chain(&cfg);
-		}
-	}
+    bus = 0;
+    cs_line = 0;
+    struct spi_config cfg = default_spi_config;
+    cfg.mode = SPI_MODE_1;
+    cfg.speed = config_options.spi_clk_khz * 1000;
+    cfg.bus = bus;
+    cfg.cs_line = cs_line;
+    A1_detect_one_chain(&cfg);
 	
 	//config all pll here
 	int i;
@@ -1128,7 +1007,6 @@ static int64_t A1_scanwork(struct thr_info *thr)
 	struct A1_chain *a1 = cgpu->device_data;
 	int32_t nonce_ranges_processed = 0;
 
-	//a1_board_selector_select_board(a1->board_id);
 	fp_file = fopen("a.txt","ab+");
 	applog(LOG_DEBUG, "A1 running scanwork");
 	uint32_t nonce;
@@ -1287,7 +1165,6 @@ static void A1_flush_work(struct cgpu_info *cgpu)
 {
 	struct A1_chain *a1 = cgpu->device_data;
 	int bid = a1->board_id;
-	a1_board_selector_select_board(bid);
 
 	applog(LOG_DEBUG, "%d: A1 running flushwork", bid);
 
@@ -1321,8 +1198,6 @@ static void A1_flush_work(struct cgpu_info *cgpu)
 		work_completed(cgpu, work);
 	}
 	mutex_unlock(&a1->lock);
-
-	unlock_board_selector();
 }
 
 static void A1_get_statline_before(char *buf, size_t len, struct cgpu_info *cgpu)
