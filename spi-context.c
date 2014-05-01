@@ -32,36 +32,21 @@ struct spi_ctx *spi_init(struct spi_config *config)
 	
 	if (config == NULL)
 		return NULL;
-	config->speed = 500000;
-		
+
 		
 	sprintf(dev_fname, SPI_DEVICE_TEMPLATE, config->bus, config->cs_line);
-	// fp_uart = open("/dev/ttyAMA0",O_RDWR);
-	// if (fp_uart < 0) {
-	// 	applog(LOG_ERR, "uart: Can not open uart device /dev/ttyAMA0");
-	// 	return NULL;
-	// } else
-	// 	applog(LOG_ERR, "uart: open uart device /dev/ttyAMA0");
-	//test uart read and write
-	// set_opt(fp_uart,115200, 8, 'N', 1);
-	int i;
-	//for(i=0;i<0xff;i++)
-	//write(fp_uart , &tt , 1);
-	
 	
 	int fd = open(dev_fname, O_RDWR);
 	if (fd < 0) {
 		applog(LOG_ERR, "SPI: Can not open SPI device %s", dev_fname);
 		return NULL;
 	}
-	int mode = 0;
-	if ((ioctl(fd, SPI_IOC_WR_MODE, &mode) < 0) ||
-	    (ioctl(fd, SPI_IOC_RD_MODE, &mode) < 0) ||
+	if ((ioctl(fd, SPI_IOC_WR_MODE, &config->mode) < 0) ||
+	    (ioctl(fd, SPI_IOC_RD_MODE, &config->mode) < 0) ||
 	    (ioctl(fd, SPI_IOC_WR_BITS_PER_WORD, &config->bits) < 0) ||
 	    (ioctl(fd, SPI_IOC_RD_BITS_PER_WORD, &config->bits) < 0) ||
 	    (ioctl(fd, SPI_IOC_WR_MAX_SPEED_HZ, &config->speed) < 0) ||
 	    (ioctl(fd, SPI_IOC_RD_MAX_SPEED_HZ, &config->speed) < 0)) {
-		applog(LOG_ERR, "SPI: ioctl error on SPI device %d", config->mode);
 		applog(LOG_ERR, "SPI: ioctl error on SPI device %s", dev_fname);
 		close(fd);
 		return NULL;

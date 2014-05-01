@@ -775,8 +775,8 @@ void A1_detect(bool hotplug)
     bus = 0;
     cs_line = 0;
     struct spi_config cfg = default_spi_config;
-    cfg.mode = SPI_MODE_1;
-    cfg.speed = config_options.spi_clk_khz * 1000;
+    cfg.mode = SPI_MODE_0;
+    cfg.speed = 500 * 1000;
     cfg.bus = bus;
     cfg.cs_line = cs_line;
     A1_detect_one_chain(&cfg);
