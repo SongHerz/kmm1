@@ -197,60 +197,7 @@ static void hexdump_error(char *prefix, uint8_t *buff, int len)
 }
 
 
-/********** upper layer SPI functions */
-// static uint8_t *exec_cmd(struct A1_chain *a1,
-// 			  uint8_t cmd, uint8_t chip_id,
-// 			  uint8_t *data, uint8_t len,
-// 			  uint8_t resp_len)
-// {
-// 	int tx_len = 4 + len;
-// 	memset(a1->spi_tx, 0, tx_len);
-// 	a1->spi_tx[0] = cmd;
-// 	a1->spi_tx[1] = chip_id;
-// 
-// 	if (data != NULL)
-// 		memcpy(a1->spi_tx + 2, data, len);
-// 	applog(LOG_ERR, "spi tp8");
-// 	bool retval = spi_transfer(a1->spi_ctx, a1->spi_tx, a1->spi_rx, tx_len);
-// 	hexdump("send: TX", a1->spi_tx, tx_len);
-// 	hexdump("send: RX", a1->spi_rx, tx_len);
-// 
-// 	int poll_len = resp_len;
-// 	if (chip_id == 0) {
-// 		if (a1->num_chips == 0) {
-// 			applog(LOG_ERR, "%d: unknown chips in chain, assuming 8",
-// 			       a1->board_id);
-// 			poll_len += 32;
-// 		}
-// 		poll_len += 4 * a1->num_chips;
-// 	}
-// 	else {
-// 		poll_len += 4 * chip_id - 2;
-// 	}
-// 	applog(LOG_ERR, "spi tp9");
-// 	assert(spi_transfer(a1->spi_ctx, NULL, a1->spi_rx + tx_len, poll_len));
-// 	hexdump("poll: RX", a1->spi_rx + tx_len, poll_len);
-// 	int ack_len = tx_len + resp_len;
-// 	int ack_pos = tx_len + poll_len - ack_len;
-// 	hexdump("poll: ACK", a1->spi_rx + ack_pos, ack_len - 2);
-// 
-// 	return (a1->spi_rx + ack_pos);
-// }
-
-
 /********** A1 SPI commands */
-// static uint8_t *cmd_RESET_BCAST(struct A1_chain *a1, uint8_t strategy)
-// {
-// 	static uint8_t s[2];
-// 	s[0] = strategy;
-// 	s[1] = strategy;
-// 	uint8_t *ret = exec_cmd(a1, A1_RESET, 0x00, s, 2, 0);
-// 	if (ret == NULL || (ret[0] != A1_RESET && a1->num_chips != 0)) {
-// 		applog(LOG_ERR, "%d: cmd_RESET_BCAST failed", a1->board_id);
-// 		return NULL;
-// 	}
-// 	return ret;
-// }
 
 static uint8_t *cmd_READ_RESULT_BCAST(struct A1_chain *a1)
 {
