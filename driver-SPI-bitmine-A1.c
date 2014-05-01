@@ -24,7 +24,10 @@
 
 FILE *fp_file;
 
-int fp_uart;
+//////////////////////////////////////////////
+// TODO: Now, a C file is included
+/////////////////////////////////////////////
+#include "btcg-hw-ctrl.c"
 
 ///////////////////////////////////////////////////////////////////////////
 
@@ -704,6 +707,10 @@ static bool A1_detect_one_chain(struct spi_config *cfg)
 	struct cgpu_info *cgpu;
 	const int board_id = 0;
 
+    if (!chip_selector_init()) {
+        applog(LOG_ERR, "Failed to initialize chip selector");
+        return false;
+    }
     struct spi_ctx *ctx = spi_init(cfg);
 
     if (ctx == NULL)
@@ -789,29 +796,6 @@ void A1_detect(bool hotplug)
 
 
 
-static bool ctrl_chip_cs( unsigned char chip )
-{
-	//uart send chip number
-	int i;
-	int j;
-	pthread_mutex_t lock;
-	//mutex_lock(&lock);
-	j=0;
-	usleep(1500);
-	if( write(fp_uart , &chip , 1) ){
-		//mutex_unlock(&lock);
-		usleep(800);
-		return true;
-	}
-	else {
-		//mutex_unlock(&lock);
-		usleep(800);
-		return false;
-	}
-}
-
-
-
 
 
 static int64_t A1_scanwork(struct thr_info *thr)
@@ -855,7 +839,10 @@ re_req:
 					work = get_work(thr, thr->id);
 					work_pool[i] = *work;
 					work_state[i] = 1;
-					ctrl_chip_cs(i);
+                    if ( !chip_select(i)) {
+                        applog(LOG_ERR, "Failed to select chip %d", i);
+                        continue;
+                    }
 					set_work(a1, c, (work_pool_p) , qbuff);	
 					applog(LOG_ERR, "get and set work ID %d state %d  buf address is %x data is %x, %x , %x , %x", i , work_state[i] , work_pool_p , 
 						*(work_pool_p->data),*(work_pool_p->data+1),*(work_pool_p->data+2),*(work_pool_p->data+3));
@@ -864,7 +851,10 @@ re_req:
 			int try_time =0;
 			int j;
 			for(j=0;j<MAX_KM_IC;j++){
-				ctrl_chip_cs(j);
+				if ( !chip_select(j)) {
+                    applog(LOG_ERR, "Failed to select chip %d", j);
+                    continue;
+                }
 				work_pool_p = &work_pool[j];
 				//applog(LOG_ERR, "get nonce %d state %d  buf address is %x", j , work_state[j] , work_pool_p);
 				res	= get_nonce(a1, (uint8_t*)&nonce, &chip_id, &job_id);				
@@ -931,7 +921,6 @@ submit_end:
 					break;
 		
 				}
-			//ctrl_chip_cs(3);
 			}
 		}
 	}	
