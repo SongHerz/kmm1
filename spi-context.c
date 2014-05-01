@@ -52,53 +52,6 @@ struct spi_ctx *spi_init(struct spi_config *config)
 	
 	unsigned char send_data_tx[2];
 	unsigned char send_data_rx[2];
-	//reset chip here
-	// send_data_tx[0] = 0xff;		// 'b10111111&address  
-	// send_data_tx[1] = 0xff;
-	// spi_send_data.tx_buf = (unsigned long)send_data_tx;
-    // spi_send_data.rx_buf = (unsigned long)send_data_rx;
-    // spi_send_data.len = ARRAY_SIZE(send_data_tx);
-    // spi_send_data.delay_usecs = 10;
-    // spi_send_data.speed_hz = config->speed;
-    // spi_send_data.bits_per_word = config->bits;
-	// ioctl(fd, SPI_IOC_MESSAGE(1), &spi_send_data);
-	
-	//delay(100);
-	
-	//write PD
-	//printf("config pll\n");
-	// send_data_tx[0] = 0xad;		// 'b10111111&address  
-	// //send_data_tx[1] = 0x9d;
-	// unsigned char chip_rate = (CHIP_FREQ-10)/10;
-	// send_data_tx[1] = 0x80|chip_rate;
-	// //#endif
-	// spi_send_data.tx_buf = (unsigned long)send_data_tx;
-    // spi_send_data.rx_buf = (unsigned long)send_data_rx;
-    // spi_send_data.len = ARRAY_SIZE(send_data_tx);
-    // spi_send_data.delay_usecs = 10;
-    // spi_send_data.speed_hz = config->speed;
-    // spi_send_data.bits_per_word = config->bits;
-	// ioctl(fd, SPI_IOC_MESSAGE(1), &spi_send_data);
-
-
-	// applog(LOG_ERR, "SPI send %x", send_data_tx[0]);
-	// applog(LOG_ERR, "SPI send %x", send_data_tx[1]);
-	
-	// send_data_tx[0] = 0xad;		// 'b10111111&address  
-	// //send_data_tx[1] = 0x1d;
-	// send_data_tx[1] = 0x7f&chip_rate;
-
-
-	// spi_send_data.tx_buf = (unsigned long)send_data_tx;
-    // spi_send_data.rx_buf = (unsigned long)send_data_rx;
-    // spi_send_data.len = ARRAY_SIZE(send_data_tx);
-    // spi_send_data.delay_usecs = 10;
-    // spi_send_data.speed_hz = config->speed;
-    // spi_send_data.bits_per_word = config->bits;
-	// ioctl(fd, SPI_IOC_MESSAGE(1), &spi_send_data);
-	
-	applog(LOG_ERR, "SPI send %x", send_data_tx[0]);
-	applog(LOG_ERR, "SPI send %x", send_data_tx[1]);
 	
 	//read reg 63
 	send_data_tx[0] = 0x7f;		// 'b10111111&address  
