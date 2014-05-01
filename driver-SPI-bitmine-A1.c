@@ -367,46 +367,47 @@ uint32_t get_diff(double diff)
 
 static uint8_t *create_job(uint8_t chip_id, uint8_t job_id, struct work *work)
 {
-	int i,j;
 	static uint8_t job_2[90];
-	static uint8_t job[WRITE_JOB_LENGTH] = {
-		/* command */
-		0x00, 0x00,
-		/* midstate */
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		/* wdata */
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00,
-		/* start nonce */
-		0x00, 0x00, 0x00, 0x00,
-		/* difficulty 1 */
-		0xff, 0xff, 0x00, 0x1d,
-		/* end nonce */
-		0xff, 0xff, 0xff, 0xff,
-	};
+	// static uint8_t job[WRITE_JOB_LENGTH] = {
+	// 	/* command */
+	// 	0x00, 0x00,
+	// 	/* midstate */
+	// 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	// 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	// 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	// 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	// 	/* wdata */
+	// 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	// 	0x00, 0x00, 0x00, 0x00,
+	// 	/* start nonce */
+	// 	0x00, 0x00, 0x00, 0x00,
+	// 	/* difficulty 1 */
+	// 	0xff, 0xff, 0x00, 0x1d,
+	// 	/* end nonce */
+	// 	0xff, 0xff, 0xff, 0xff,
+	// };
 	uint8_t *midstate = work->midstate;
 	uint8_t *wdata = work->data + 64;
 		
 	//uint8_t *midstate = work->midstate;
 	//uint8_t *wdata = work->data + 64;
 
-	uint32_t *p1 = (uint32_t *) &job[34];
-	uint32_t *p2 = (uint32_t *) wdata;
+	// uint32_t *p1 = (uint32_t *) &job[34];
+	// uint32_t *p2 = (uint32_t *) wdata;
 
-	job[0] = (job_id << 4) | A1_WRITE_JOB;
-	job[1] = chip_id;
+	// job[0] = (job_id << 4) | A1_WRITE_JOB;
+	// job[1] = chip_id;
 
 	//applog(LOG_ERR, " bef swap %x %x %x %x", *midstate,*(midstate+1),*(midstate+2),*(midstate+3));
-	swab256(job + 2, midstate);
-	p1[0] = bswap_32(p2[0]);
-	p1[1] = bswap_32(p2[1]);
-	p1[2] = bswap_32(p2[2]);
-	p1[4] = get_diff(work->sdiff);
+	// swab256(job + 2, midstate);
+	// p1[0] = bswap_32(p2[0]);
+	// p1[1] = bswap_32(p2[1]);
+	// p1[2] = bswap_32(p2[2]);
+    // FIXME: What about diff field in the work
+	// p1[4] = get_diff(work->sdiff);
 	//applog(LOG_ERR, " aft swap %x %x %x %x",job[30],job[31],job[32],job[33]);
 	
+	int i,j;
 	for( i = 0,j=0; i < 44,j<88 ; i++,j=j+2 ){
 		job_2[j] = 0x80|i;
 		if(i<32) 
