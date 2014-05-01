@@ -29,11 +29,6 @@ int fp_uart;
 ///////////////////////////////////////////////////////////////////////////
 
 
-/*
- * TODO: yes, we include a C file for now until we set up a framework
- * to support different variants of A1 products
- */
-
 #define MAX_KM_IC	2
  
 ///////////////////////////////////////////////////////////////////////////
@@ -269,12 +264,6 @@ static uint8_t *exec_cmd(struct A1_chain *a1,
 
 
 /********** A1 SPI commands */
-static uint8_t *cmd_BIST_FIX_BCAST(struct A1_chain *a1)
-{
-	uint8_t *ret = exec_cmd(a1, A1_BIST_FIX, 0x00, NULL, 0, 0);
-	return ret;
-}
-
 static uint8_t *cmd_RESET_BCAST(struct A1_chain *a1, uint8_t strategy)
 {
 	static uint8_t s[2];
@@ -493,187 +482,12 @@ static uint8_t *cmd_WRITE_JOB(struct A1_chain *a1, uint8_t chip_id,
 
 /********** A1 low level functions */
 
-#define MAX_PLL_WAIT_CYCLES 25
-#define PLL_CYCLE_WAIT_TIME 40
-static bool check_chip_pll_lock(struct A1_chain *a1, int chip_id, uint8_t *wr)
-{
-	int n;
-	for (n = 0; n < MAX_PLL_WAIT_CYCLES; n++) {
-		/* check for PLL lock status */
-		if (cmd_READ_REG(a1, chip_id) && (a1->spi_rx[4] & 1) == 1)
-			/* double check that we read back what we set before */
-			return wr[0] == a1->spi_rx[2] && wr[1] == a1->spi_rx[3];
-
-		cgsleep_ms(PLL_CYCLE_WAIT_TIME);
-	}
-	applog(LOG_ERR, "%d: chip %d failed PLL lock", a1->board_id, chip_id);
-	return false;
-}
-
-static uint8_t *get_pll_reg(struct A1_chain *a1, int ref_clock_khz,
-			    int sys_clock_khz)
-{
-	/*
-	 * TODO: this is only an initial approach with binary adjusted
-	 * dividers and thus not exploiting the whole divider range.
-	 *
-	 * If required, the algorithm can be adapted to find the PLL
-	 * parameters after:
-	 *
-	 * sys_clk = (ref_clk * pll_fbdiv) / (pll_prediv * 2^(pll_postdiv - 1))
-	 *
-	 * with a higher pll_postdiv being desired over a higher pll_prediv
-	 */
-
-	static uint8_t writereg[6] = { 0x00, 0x00, 0x21, 0x84, };
-	uint8_t pre_div = 1;
-	uint8_t post_div = 1;
-	uint32_t fb_div = sys_clock_khz / ref_clock_khz;
-	int bid = a1->board_id;
-
-	applog(LOG_WARNING, "%d: Setting PLL: CLK_REF=%dMHz, SYS_CLK=%dMHz",
-	       bid, ref_clock_khz / 1000, sys_clock_khz / 1000);
-
-	while (fb_div > 511) {
-		if (post_div < 4)
-			post_div++;
-		else
-			pre_div <<= 1;
-		fb_div >>= 1;
-	}
-	if (pre_div > 31) {
-		applog(LOG_WARNING, "%d: can't set PLL parameters", bid);
-		return NULL;
-	}
-	writereg[0] = (post_div << 6) | (pre_div << 1) | (fb_div >> 8);
-	writereg[1] = fb_div & 0xff;
-	applog(LOG_WARNING, "%d: setting PLL: pre_div=%d, post_div=%d, fb_div=%d"
-	       ": 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x", bid,
-	       pre_div, post_div, fb_div,
-	       writereg[0], writereg[1], writereg[2],
-	       writereg[3], writereg[4], writereg[5]);
-	return writereg;
-}
-
-
-#define WEAK_CHIP_THRESHOLD	30
-#define BROKEN_CHIP_THRESHOLD	26
-#define WEAK_CHIP_SYS_CLK	(600 * 1000)
-#define BROKEN_CHIP_SYS_CLK	(400 * 1000)
-
-/*
- * BIST_START works only once after HW reset, on subsequent calls it
- * returns 0 as number of chips.
- */
-static int chain_detect(struct A1_chain *a1)
-{
-	int tx_len = 6;
-
-	memset(a1->spi_tx, 0, tx_len);
-	a1->spi_tx[0] = A1_BIST_START;
-	a1->spi_tx[1] = 0;
-	applog(LOG_ERR, "spi tp4");
-	if (!spi_transfer(a1->spi_ctx, a1->spi_tx, a1->spi_rx, tx_len))
-		return 0;
-	hexdump("TX", a1->spi_tx, 6);
-	hexdump("RX", a1->spi_rx, 6);
-
-	int i;
-	int bid = a1->board_id;
-	int max_poll_words = MAX_CHAIN_LENGTH * 2;
-	for(i = 1; i < max_poll_words; i++) {
-		if (a1->spi_rx[0] == A1_BIST_START && a1->spi_rx[1] == 0) {
-			applog(LOG_ERR, "spi tp6");
-			spi_transfer(a1->spi_ctx, NULL, a1->spi_rx, 2);
-			hexdump("RX", a1->spi_rx, 2);
-			uint8_t n = a1->spi_rx[1];
-			a1->num_chips = (i / 2) + 1;
-			if (a1->num_chips != n) {
-				applog(LOG_ERR, "%d: enumeration: %d <-> %d",
-				       bid, a1->num_chips, n);
-				if (n != 0)
-					a1->num_chips = n;
-			}
-			applog(LOG_WARNING, "%d: detected %d chips",
-			       bid, a1->num_chips);
-			return a1->num_chips;
-		}
-		applog(LOG_ERR, "spi tp5");
-		bool s = spi_transfer(a1->spi_ctx, NULL, a1->spi_rx, 2);
-		hexdump("RX", a1->spi_rx, 2);
-		if (!s)
-			return 0;
-	}
-	applog(LOG_WARNING, "%d: no A1 chip-chain detected", bid);
-	return 0;
-}
-
 /********** disable / re-enable related section (temporary for testing) */
 static int get_current_ms(void)
 {
 	cgtimer_t ct;
 	cgtimer_time(&ct);
 	return cgtimer_to_ms(&ct);
-}
-
-static bool is_chip_disabled(struct A1_chain *a1, uint8_t chip_id)
-{
-	struct A1_chip *chip = &a1->chips[chip_id - 1];
-	return chip->disabled || chip->cooldown_begin != 0;
-}
-
-/* check and disable chip, remember time */
-static void disable_chip(struct A1_chain *a1, uint8_t chip_id)
-{
-	flush_spi(a1);
-	struct A1_chip *chip = &a1->chips[chip_id - 1];
-	int bid = a1->board_id;
-	if (is_chip_disabled(a1, chip_id)) {
-		applog(LOG_WARNING, "%d: chip %d already disabled",
-		       bid, chip_id);
-		return;
-	}
-	applog(LOG_WARNING, "%d: temporary disabling chip %d", bid, chip_id);
-	chip->cooldown_begin = get_current_ms();
-}
-
-/* check if disabled chips can be re-enabled */
-void check_disabled_chips(struct A1_chain *a1)
-{
-	int i;
-	int bid = a1->board_id;
-	for (i = 0; i < a1->num_active_chips; i++) {
-		int chip_id = i + 1;
-		struct A1_chip *chip = &a1->chips[i];
-		if (!is_chip_disabled(a1, chip_id))
-			continue;
-		/* do not re-enable fully disabled chips */
-		if (chip->disabled)
-			continue;
-		if (chip->cooldown_begin + COOLDOWN_MS > get_current_ms())
-			continue;
-		/*if (!cmd_READ_REG(a1, chip_id)) {
-			chip->fail_count++;
-			applog(LOG_WARNING, "%d: chip %d not yet working - %d",
-			       bid, chip_id, chip->fail_count);
-			if (chip->fail_count > DISABLE_CHIP_FAIL_THRESHOLD) {
-				applog(LOG_WARNING,
-				       "%d: completely disabling chip %d at %d",
-				       bid, chip_id, chip->fail_count);
-				chip->disabled = true;
-				a1->num_cores -= chip->num_cores;
-				continue;
-			}
-			
-			chip->cooldown_begin = get_current_ms();
-			continue;
-		}
-		*/
-		applog(LOG_WARNING, "%d: chip %d is working again",
-		       bid, chip_id);
-		chip->cooldown_begin = 0;
-		chip->fail_count = 0;
-	}
 }
 
 /********** job creation and result evaluation */
