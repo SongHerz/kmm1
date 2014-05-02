@@ -313,8 +313,7 @@ uint32_t get_diff(double diff)
 
 
 /* set work for given chip, returns true if a nonce range was finished */
-static bool set_work(struct A1_chain *a1, uint8_t chip_id, struct work *work,
-		     uint8_t queue_states)
+static bool set_work(struct A1_chain *a1, struct work *work)
 {
 	bool retval = false;
 
@@ -509,22 +508,15 @@ static int64_t A1_scanwork(struct thr_info *thr)
 	uint32_t nonce;
 	uint8_t chip_id;
 	uint8_t job_id;
-	//uint8_t job_id;
 	bool work_updated = false;
 
 	mutex_lock(&a1->lock);
 
-	int bid = a1->board_id;
 	int res;
-	uint8_t c = i;
-	uint8_t *wdata;// work->data + 64;
 	
 	chip_id = 2;
 	applog(LOG_ERR, "start");
-	uint8_t qstate = a1->spi_rx[1] & 3;
-	uint8_t qbuff = a1->spi_rx[6];
 	struct work *work;
-	struct A1_chip *chip = &a1->chips[2 - 1];
 	applog(LOG_ERR, "SPI fd2 is  %x", a1->spi_ctx->fd);
 	while(1)
 	{
@@ -542,7 +534,7 @@ re_req:
                         applog(LOG_ERR, "Failed to select chip %d", i);
                         continue;
                     }
-					set_work(a1, c, (work_pool_p) , qbuff);	
+					set_work(a1, work_pool_p);	
 					applog(LOG_ERR, "get and set work ID %d state %d  buf address is %x data is %x, %x , %x , %x", i , work_state[i] , work_pool_p , 
 						*(work_pool_p->data),*(work_pool_p->data+1),*(work_pool_p->data+2),*(work_pool_p->data+3));
 				} 
@@ -629,8 +621,7 @@ rec_out:
 	if (nonce_ranges_processed < 0)
 		nonce_ranges_processed = 0;
 	if (nonce_ranges_processed != 0) {
-		applog(LOG_DEBUG, "%d, nonces processed %d",
-		       bid, nonce_ranges_processed);
+		applog(LOG_DEBUG, "nonces processed %d", nonce_ranges_processed);
 	}
 	/* in case of no progress, prevent busy looping */
 	if (!work_updated)
