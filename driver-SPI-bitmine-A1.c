@@ -108,6 +108,7 @@ unsigned work_state[32] ={
 
 
 struct A1_chip {
+    unsigned int id;
 	struct work *work;
 	/* stats */
 	int hw_errors;
@@ -254,12 +255,14 @@ static bool abort_work(struct A1_chain *a1)
 /*
  * id: chip id
  */
-static void init_one_chip( struct spi_ctx *ctx, unsigned int id) {
-    /* TODO: SHOULD RETURN A STRUCTURE THAT PRESENTS A CHIP. */
+static bool init_one_chip( struct A1_chip *chip, struct spi_ctx *ctx, unsigned int id) {
     if ( !chip_reset( ctx)) {
         applog(LOG_ERR, "Failed to reset chip %u", id);
-        return;
+        return false;
     }
+    memset(chip, 0, sizeof(*chip));
+    chip->id = id;
+    return true;
 }
 
 struct A1_chain *init_A1_chain( struct cgpu_info *cgpu, struct spi_ctx *ctx)
@@ -289,7 +292,9 @@ struct A1_chain *init_A1_chain( struct cgpu_info *cgpu, struct spi_ctx *ctx)
 
     size_t i;
     for ( i = 0; i < a1->num_chips; ++i) {
-        init_one_chip( ctx, i);
+        if (!init_one_chip( a1->chips + i, ctx, i)) {
+            goto failure;
+        }
     }
 
 	return a1;
@@ -304,7 +309,9 @@ failure:
     return NULL;
 }
 
-static bool submit_a_nonce(struct thr_info *thr, struct work *work, uint32_t nonce) {
+static bool submit_a_nonce(struct thr_info *thr, struct work *work,
+        const uint32_t nonce, uint32_t *actual_nonce) {
+    assert( actual_nonce);
     const uint32_t nonce_candies[] = {
        nonce + 1, nonce + 2, nonce + 3, nonce + 4,
        nonce - 3, nonce - 2, nonce - 1, nonce};
@@ -316,6 +323,7 @@ static bool submit_a_nonce(struct thr_info *thr, struct work *work, uint32_t non
             continue;
         }
         if (submit_nonce( thr, work, a_nonce)) {
+            *actual_nonce = a_nonce;
             return true;
         }
     }
@@ -432,8 +440,9 @@ re_req:
 					work_state[j] = 0;
 				} else {
 					if( (work != NULL) && (nonce!=NULL)){
-                        if (submit_a_nonce( thr, work_pool_p, nonce)) {
-                            applog(LOG_ERR, " submit nonce ok ID is %d nonce is %x addr is %x" , j ,nonce , work_pool_p);
+                        uint32_t actual_nonce;
+                        if (submit_a_nonce( thr, work_pool_p, nonce, &actual_nonce)) {
+                            applog(LOG_ERR, " submit nonce ok ID is %d nonce is %x addr is %x" , j , actual_nonce , work_pool_p);
                             work_state[j] = 0;
                             applog(LOG_ERR, "change 2 state %d 0" , j);
                             //goto rec_out;
