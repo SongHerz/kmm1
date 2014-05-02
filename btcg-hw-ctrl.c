@@ -2,7 +2,6 @@
 #include <stdint.h> // For various data types
 #include <termios.h>
 
-#include "logging.h"
 #include "spi-context.h"
 
 ///////////////////////////////////////////////////
