@@ -341,43 +341,6 @@ static bool submit_a_nonce(struct thr_info *thr, struct work *work, uint32_t non
     return false;
 }
 
-static bool A1_detect_one_chain(struct spi_config *cfg)
-{
-	struct cgpu_info *cgpu;
-
-    if (!chip_selector_init()) {
-        applog(LOG_ERR, "Failed to initialize chip selector");
-        return false;
-    }
-    struct spi_ctx *ctx = spi_init(cfg);
-
-    if (ctx == NULL)
-        return false;
-
-    if (!chip_reset(ctx)) {
-        applog(LOG_ERR, "Failed to reset chip");
-        return false;
-    }
-
-    struct A1_chain *a1 = init_A1_chain(ctx);
-    if (a1 == NULL)
-        return false;
-
-    cgpu = malloc(sizeof(*cgpu));
-    assert(cgpu != NULL);
-
-    memset(cgpu, 0, sizeof(*cgpu));
-    cgpu->drv = &bitmineA1_drv;
-    cgpu->name = "BitmineA1";
-    cgpu->threads = 1;
-
-    cgpu->device_data = a1;
-
-    a1->cgpu = cgpu;
-    add_cgpu(cgpu);
-
-	return true;
-}
 
 /*
  * id: chip id
