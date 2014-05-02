@@ -420,7 +420,6 @@ static int64_t A1_scanwork(struct thr_info *thr)
 	int i;
 	struct cgpu_info *cgpu = thr->cgpu;
 	struct A1_chain *a1 = cgpu->device_data;
-	int32_t nonce_ranges_processed = 0;
 
 	applog(LOG_DEBUG, "A1 running scanwork");
 	uint32_t nonce;
@@ -515,16 +514,12 @@ submit_end:
 	
 rec_out:
 	mutex_unlock(&a1->lock);
-	if (nonce_ranges_processed < 0)
-		nonce_ranges_processed = 0;
-	if (nonce_ranges_processed != 0) {
-		applog(LOG_DEBUG, "nonces processed %d", nonce_ranges_processed);
-	}
 	/* in case of no progress, prevent busy looping */
 	if (!work_updated)
 		cgsleep_ms(160);
 	
-	return (int64_t)nonce_ranges_processed << 32;
+    // TODO: SHOULD RETURN (int64_t)(number of hashes done)
+	return 0;
 }
 
 
