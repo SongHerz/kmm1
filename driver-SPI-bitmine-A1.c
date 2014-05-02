@@ -118,7 +118,6 @@ unsigned work_state[32] ={
 #define MAX_CMD_LENGTH		(WRITE_JOB_LENGTH + MAX_CHAIN_LENGTH * 2 * 2)
 
 struct A1_chip {
-	int num_cores;
 	int last_queued_id;
 	struct work *work[32];
 	/* stats */
@@ -138,8 +137,6 @@ struct A1_chip {
 struct A1_chain {
 	struct cgpu_info *cgpu;
 	int num_chips;
-	int num_cores;
-	int num_active_chips;
 	int chain_skew;
 	uint8_t spi_tx[MAX_CMD_LENGTH];
 	uint8_t spi_rx[MAX_CMD_LENGTH];
@@ -293,14 +290,10 @@ struct A1_chain *init_A1_chain(struct spi_ctx *ctx)
 	       a1->spi_ctx->config.bus, a1->spi_ctx->config.cs_line,
 	       a1->num_chips);
 
-	/* override max number of active chips if requested */
-	a1->num_active_chips = a1->num_chips;
-
-	a1->chips = calloc(a1->num_active_chips, sizeof(struct A1_chip));
+	a1->chips = calloc(a1->num_chips, sizeof(struct A1_chip));
 	assert (a1->chips != NULL);
 
-	applog(LOG_WARNING, "found %d chips with total %d active cores",
-	       a1->num_active_chips, a1->num_cores);
+	applog(LOG_WARNING, "found %d chips", a1->num_chips);
 
 	mutex_init(&a1->lock);
 	INIT_LIST_HEAD(&a1->active_wq.head);
@@ -516,9 +509,9 @@ static bool A1_queue_full(struct cgpu_info *cgpu)
 
 	mutex_lock(&a1->lock);
 	applog(LOG_DEBUG, "A1 running queue_full: %d/%d",
-	       a1->active_wq.num_elems, a1->num_active_chips);
+            a1->active_wq.num_elems, a1->num_chips);
 
-	if (a1->active_wq.num_elems >= a1->num_active_chips * 2)
+	if (a1->active_wq.num_elems >= a1->num_chips * 2)
 		queue_full = true;
 	else{
 		//push queue
@@ -544,7 +537,7 @@ static void A1_flush_work(struct cgpu_info *cgpu)
 		applog(LOG_ERR, "failed to abort work in chip chain!");
 	}
 	/* flush the work chips were currently hashing */
-	for (i = 0; i < a1->num_active_chips; i++) {
+	for (i = 0; i < a1->num_chips; i++) {
 		int j;
 		struct A1_chip *chip = &a1->chips[i];
 		for (j = 0; j < 4; j++) {
@@ -571,7 +564,7 @@ static void A1_flush_work(struct cgpu_info *cgpu)
 static void A1_get_statline_before(char *buf, size_t len, struct cgpu_info *cgpu)
 {
 	struct A1_chain *a1 = cgpu->device_data;
-	tailsprintf(buf, len, "%2d/%3d ", a1->num_active_chips, a1->num_cores);
+	tailsprintf(buf, len, "%2d ", a1->num_chips);
 }
 
 struct device_drv bitmineA1_drv = {
