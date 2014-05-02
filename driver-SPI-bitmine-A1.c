@@ -321,6 +321,25 @@ failure:
 	return NULL;
 }
 
+static bool submit_a_nonce(struct thr_info *thr, struct work *work, uint32_t nonce) {
+    const uint32_t nonce_candies[] = {
+       nonce + 1, nonce + 2, nonce + 3, nonce + 4,
+       nonce - 3, nonce - 2, nonce - 1, nonce};
+
+    size_t i;
+    for ( i = 0; i < sizeof( nonce_candies) / sizeof( nonce_candies[0]); ++i) {
+        const uint32_t a_nonce = nonce_candies[i];
+        if (!test_nonce( work, a_nonce)) {
+            continue;
+        }
+        if (submit_nonce( thr, work, a_nonce)) {
+            return true;
+        }
+    }
+    inc_hw_errors( thr);
+    return false;
+}
+
 static bool A1_detect_one_chain(struct spi_config *cfg)
 {
 	struct cgpu_info *cgpu;
@@ -455,39 +474,22 @@ re_req:
 					applog(LOG_ERR, "time out");
 					work_state[j] = 0;
 				} else {
-					nonce = nonce + 1;
 					if( (work != NULL) && (nonce!=NULL)){
-						for(i=0;i<4;i++){
-							if(!submit_nonce(thr, work_pool_p, nonce)){
-								applog(LOG_ERR, "get nonce ID %d state %d  buf address is %x", j , work_state[j] , work_pool_p);
-								applog(LOG_ERR, "hw err nonce is %x, line: %d" , nonce, __LINE__);
-								nonce = nonce + 1;
-							} else{
-								applog(LOG_ERR, " submit nonce ok ID is %d nonce is %x addr is %x" , j ,nonce , work_pool_p);
-								work_state[j] = 0;
-								applog(LOG_ERR, "change 2 state %d 0" , j);
-								//goto rec_out;
-								goto submit_end;
-								break;
-							}
-						}
-						nonce = nonce  - 8;
-						for(i=0;i<4;i++){
-							if(!submit_nonce(thr, work_pool_p, nonce)){
-								applog(LOG_ERR, "get nonce ID %d state %d  buf address is %x", j , work_state[j] , work_pool_p);
-								applog(LOG_ERR, "hw err nonce is %x, line: %d" , nonce, __LINE__);
-								nonce = nonce + 1;
-							} else {
-								work_state[j] = 0;
-								applog(LOG_ERR, "change 2 state %d 0" , j);
-								applog(LOG_ERR, " submit nonce ok nonce ID is %d is %x addr is " , j , nonce , work_pool_p);
-								//goto rec_out;
-								break;
-							}
-						}
-							work_state[j] = 0;
-							applog(LOG_ERR, "change 1 state %d 0" , j);
-							applog(LOG_ERR, "submit nonce end");
+                        if (submit_a_nonce( thr, work_pool_p, nonce)) {
+                            applog(LOG_ERR, " submit nonce ok ID is %d nonce is %x addr is %x" , j ,nonce , work_pool_p);
+                            work_state[j] = 0;
+                            applog(LOG_ERR, "change 2 state %d 0" , j);
+                            //goto rec_out;
+                            goto submit_end;
+                            break;
+                        }
+                        else {
+                            applog(LOG_ERR, "get nonce ID %d state %d  buf address is %x", j , work_state[j] , work_pool_p);
+                            applog(LOG_ERR, "hw err nonce is %x, line: %d" , nonce, __LINE__);
+                        }
+                        work_state[j] = 0;
+                        applog(LOG_ERR, "change 1 state %d 0" , j);
+                        applog(LOG_ERR, "submit nonce end");
 						} else {
 							applog(LOG_ERR, "submit end");
 							goto rec_out;
