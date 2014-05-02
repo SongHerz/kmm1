@@ -323,8 +323,7 @@ static bool set_work(struct A1_chain *a1, struct work *work)
 	return retval;
 }
 
-static char get_nonce(struct A1_chain *a1, uint8_t *nonce,
-		      uint8_t *chip, uint8_t *job_id)
+static char get_nonce(struct A1_chain *a1, uint8_t *nonce)
 {
 	uint8_t *ret = cmd_READ_RESULT_BCAST(a1);
 	//applog(LOG_ERR, " ret is %x ", ret[1]);
@@ -343,9 +342,6 @@ static char get_nonce(struct A1_chain *a1, uint8_t *nonce,
 		//applog(LOG_ERR, "read nonce");
 		
 	
-		*chip = 2; //read from uart and so on..
-		*job_id = *chip - 1;
-		//applog(LOG_ERR, "job id is %d\n" , (*job_id));
 		//add read nonce here
 		//memcpy(nonce, ret + 2, 4);
 		*nonce = *(ret+9);
@@ -506,15 +502,12 @@ static int64_t A1_scanwork(struct thr_info *thr)
 
 	applog(LOG_DEBUG, "A1 running scanwork");
 	uint32_t nonce;
-	uint8_t chip_id;
-	uint8_t job_id;
 	bool work_updated = false;
 
 	mutex_lock(&a1->lock);
 
 	int res;
 	
-	chip_id = 2;
 	applog(LOG_ERR, "start");
 	struct work *work;
 	applog(LOG_ERR, "SPI fd2 is  %x", a1->spi_ctx->fd);
@@ -548,7 +541,7 @@ re_req:
                 }
 				work_pool_p = &work_pool[j];
 				//applog(LOG_ERR, "get nonce %d state %d  buf address is %x", j , work_state[j] , work_pool_p);
-				res	= get_nonce(a1, (uint8_t*)&nonce, &chip_id, &job_id);				
+				res	= get_nonce(a1, (uint8_t*)&nonce);				
 				switch(res) {
 				case 3: //inv state
 					goto rec_out;
