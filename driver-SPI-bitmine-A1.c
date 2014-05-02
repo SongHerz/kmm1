@@ -285,60 +285,6 @@ static uint8_t *cmd_READ_RESULT_BCAST(struct A1_chain *a1)
 }
 
 
-static uint8_t *cmd_WRITE_JOB(struct A1_chain *a1, uint8_t chip_id,
-			      uint8_t *job)
-{
-
-	//uint8_t cmd = (a1->spi_tx[0] << 8) | a1->spi_tx[1];
-	/* ensure we push the SPI command to the last chip in chain */
-	int tx_len = 90;// + 2;
-	memcpy(a1->spi_tx, job, 90);
-	//memset(a1->spi_tx + WRITE_JOB_LENGTH, 0, tx_len - WRITE_JOB_LENGTH);
-	//applog(LOG_ERR, "spi tp3");
-	
-	
-	bool retval = spi_transfer(a1->spi_ctx, a1->spi_tx, a1->spi_rx, tx_len);
-	char test_tx[2];
-	char test_rx[2];
-	int i;
-	/*
-	for( i = 0; i <= 44 ; i++){
-		test_tx[0] = 0x40|i;
-		test_tx[1] = 0xaa;
-		retval = spi_transfer(a1->spi_ctx, test_tx, test_rx, 2);
-		applog(LOG_ERR, "read reg %d is %x %x" , i ,  test_rx[0] , test_rx[1]);
-	}
-	*/
-	hexdump("send: TX", a1->spi_tx, tx_len);
-	hexdump("send: RX", a1->spi_rx, tx_len);
-	int poll_len = 4 * chip_id - 2;
-	int ack_len = tx_len;
-	int ack_pos = tx_len + poll_len - ack_len;
-	uint8_t *ret = a1->spi_rx + ack_pos;
-	/*
-	int poll_len = 4 * chip_id - 2;
-
-	retval = spi_transfer(a1->spi_ctx, NULL, a1->spi_rx + tx_len, poll_len);
-	hexdump("poll: RX", a1->spi_rx + tx_len, poll_len);
-
-	int ack_len = tx_len;
-	int ack_pos = tx_len + poll_len - ack_len;
-	hexdump("poll: ACK", a1->spi_rx + ack_pos, tx_len);
-
-	uint8_t *ret = a1->spi_rx + ack_pos;
-	if (ret[0] != a1->spi_tx[0] || ret[1] != a1->spi_tx[1]){
-		applog(LOG_ERR, "%d: cmd_WRITE_JOB failed: "
-			"0x%02x%02x/0x%02x%02x", a1->board_id,
-			ret[0], ret[1], a1->spi_tx[0], a1->spi_tx[1]);
-		//return NULL;
-	}
-	*/
-	return ret;
-	
-}
-
-/********** A1 low level functions */
-
 /********** disable / re-enable related section (temporary for testing) */
 static int get_current_ms(void)
 {
@@ -372,10 +318,6 @@ static bool set_work(struct A1_chain *a1, uint8_t chip_id, struct work *work,
 {
 	bool retval = false;
 
-	//uint8_t *jobdata = create_job(work);
-	
-	//applog(LOG_ERR, " calc work is %x %x , %x ，%x",  *(jobdata+1), *(jobdata+3) , *(jobdata+5) , *(jobdata+7));
-	//cmd_WRITE_JOB(a1, chip_id, jobdata);
     if (!chip_write_job( a1->spi_ctx, work->midstate, work->data + 64)) {
         applog( LOG_ERR, "Failed to write job to chip");
     }
