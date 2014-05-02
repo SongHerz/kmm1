@@ -18,7 +18,8 @@
 #define MIDSTATE_BASE_ADDR  (uint8_t)(0)    // 0 ~ 31
 #define DATA_BASE_ADDR      (uint8_t)(32)   // 32 ~ 43
 #define START_WORK_ADDR     (uint8_t)(44)
-#define PLL_ADDR    (uint8_t)(45)
+#define PLL_ADDR            (uint8_t)(45)
+#define NONCE_GRP_BASE_ADDR(n)  (uint8_t)(46 + (n)*4)
 #define STATUS_ADDR (uint8_t)(63)
 
 // PLL frequency
