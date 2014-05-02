@@ -15,6 +15,9 @@
 #define CMD_RST (uint8_t)(0x40 | 0x80)    // 2'b11xx_xxxx
 
 // SPI registers
+#define MIDSTATE_BASE_ADDR  (uint8_t)(0)    // 0 ~ 31
+#define DATA_BASE_ADDR      (uint8_t)(32)   // 32 ~ 43
+#define START_WORK_ADDR     (uint8_t)(44)
 #define PLL_ADDR    (uint8_t)(45)
 #define STATUS_ADDR (uint8_t)(63)
 
@@ -83,6 +86,64 @@ bool chip_status(struct spi_ctx *ctx, int *status) {
     }
     *status = rx[1];
     return true;
+}
+
+
+#define JOB_LENGTH 90
+/*
+ * midstate: a 32-byte array
+ * wdata: a 12-byte array
+ */
+static uint8_t *__create_job( const uint8_t *midstate, const uint8_t *wdata)
+{
+	static uint8_t job_2[JOB_LENGTH];
+	// uint8_t *midstate = work->midstate;
+	// uint8_t *wdata = work->data + 64;
+		
+    // FIXME: What about diff field in the work
+	// p1[4] = get_diff(work->sdiff);
+    int i;
+    int j;
+    for ( i = 0; i < 32; ++i) {
+        job_2[2*i] = CMD_WR | (MIDSTATE_BASE_ADDR + i);
+        job_2[2*i + 1] = *(midstate + i);
+    }
+    assert( 2*i == 64);
+
+    for ( j = 0; j < 12; ++j) {
+        job_2[2*i + 2*j] = CMD_WR | (DATA_BASE_ADDR + j);
+        job_2[2*i + 2*j + 1] = *(wdata + j);
+    }
+    assert( 2*i + 2*j == 88);
+    job_2[88] = CMD_WR | START_WORK_ADDR;
+    job_2[89] = 0xff;   // any value is fine.
+
+    return job_2;
+	
+	// int i,j;
+	// for( i = 0,j=0; i < 44,j<88 ; i++,j=j+2 ){
+	// 	job_2[j] = 0x80|i;
+	// 	if(i<32) 
+	// 		job_2[j+1] = *(midstate+i);
+	// 	else 
+	// 		job_2[j+1] = *(wdata+i-32);//job[2+32+i];
+	// 	//applog(LOG_ERR, " job is %x ",job_2[j+1]);
+	// }
+	// 
+	// //applog(LOG_ERR, " job is %x %x %x %x",job_2[1],job_2[3],job_2[5],job_2[7]);
+	// job_2[88] = 0x80|44;
+	// job_2[89] = 0x80|44;
+	// 
+	// return job_2;
+	
+}
+
+
+bool chip_write_job(struct spi_ctx *ctx, const uint8_t *midstate, const uint8_t *wdata) {
+    uint8_t *tx = __create_job( midstate, wdata);
+    assert( tx);
+    uint8_t dummy[JOB_LENGTH];
+    return spi_transfer(ctx, tx, dummy, JOB_LENGTH);
 }
 
 
