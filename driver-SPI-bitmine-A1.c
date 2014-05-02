@@ -106,16 +106,6 @@ unsigned work_state[32] ={
 /* if after this number of retries a chip is still inaccessible, disable it */
 #define DISABLE_CHIP_FAIL_THRESHOLD	7
 
-/* the WRITE_JOB command is the largest (2 bytes command, 56 bytes payload) */
-#define WRITE_JOB_LENGTH	58
-#define MAX_CHAIN_LENGTH	64
-/*
- * For commands to traverse the chain, we need to issue dummy writes to
- * keep SPI clock running. To reach the last chip in the chain, we need to
- * write the command, followed by chain-length words to pass it through the
- * chain and another chain-length words to get the ACK back to host
- */
-#define MAX_CMD_LENGTH		(WRITE_JOB_LENGTH + MAX_CHAIN_LENGTH * 2 * 2)
 
 struct A1_chip {
 	int last_queued_id;
@@ -137,9 +127,6 @@ struct A1_chip {
 struct A1_chain {
 	struct cgpu_info *cgpu;
 	int num_chips;
-	int chain_skew;
-	uint8_t spi_tx[MAX_CMD_LENGTH];
-	uint8_t spi_rx[MAX_CMD_LENGTH];
 	struct spi_ctx *spi_ctx;
 	struct A1_chip *chips;
 	pthread_mutex_t lock;
