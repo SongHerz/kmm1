@@ -276,8 +276,9 @@ void exit_A1_chain(struct A1_chain *a1)
 	free(a1);
 }
 
-struct A1_chain *init_A1_chain(struct spi_ctx *ctx, int board_id)
+struct A1_chain *init_A1_chain(struct spi_ctx *ctx)
 {
+    const int board_id = 0;
 	int i;
 	struct A1_chain *a1 = malloc(sizeof(*a1));
 	assert(a1 != NULL);
@@ -343,7 +344,6 @@ static bool submit_a_nonce(struct thr_info *thr, struct work *work, uint32_t non
 static bool A1_detect_one_chain(struct spi_config *cfg)
 {
 	struct cgpu_info *cgpu;
-	const int board_id = 0;
 
     if (!chip_selector_init()) {
         applog(LOG_ERR, "Failed to initialize chip selector");
@@ -359,9 +359,7 @@ static bool A1_detect_one_chain(struct spi_config *cfg)
         return false;
     }
 
-    applog(LOG_WARNING, "checking board %d...", board_id);
-
-    struct A1_chain *a1 = init_A1_chain(ctx, board_id);
+    struct A1_chain *a1 = init_A1_chain(ctx);
     if (a1 == NULL)
         return false;
 
@@ -381,32 +379,65 @@ static bool A1_detect_one_chain(struct spi_config *cfg)
 	return true;
 }
 
+/*
+ * id: chip id
+ */
+static void init_one_chip( struct spi_ctx *ctx, unsigned int id) {
+    /* TODO: SHOULD RETURN A STRUCTURE THAT PRESENTS A CHIP. */
+    if ( !chip_reset( ctx)) {
+        applog(LOG_ERR, "Failed to reset chip %u", id);
+        return;
+    }
+}
+
 /* Probe SPI channel and register chip chain */
 void A1_detect(bool hotplug)
 {
 	/* no hotplug support for now */
 	if (hotplug)
 		return;
-
-
-
-	applog(LOG_ERR, "A1 detect");
+ 
+    if (!chip_selector_init()) {
+        applog(LOG_ERR, "Failed to initialize chip selector");
+        return;
+    }
 	
+    /* SPI configuration */
+    /* TODO: Use options to control spi clk */
     struct spi_config cfg = default_spi_config;
     cfg.mode = SPI_MODE_0;
     cfg.speed = 500 * 1000;
     cfg.delay = 10;         // TODO: may use default value
-    A1_detect_one_chain(&cfg);
+
+    struct spi_ctx *ctx = spi_init(&cfg);
+    if (ctx == NULL) {
+        applog(LOG_ERR, "Failed to initialize SPI");
+        return;
+    }
 	
-	//config all pll here
-	int i;
-	for(i=0;i<32;i++){
-		
-	
-	}
-	
-	
-	
+    struct A1_chain *a1 = init_A1_chain(ctx);
+    if (a1 == NULL)
+        return;
+
+    struct cgpu_info *cgpu = malloc(sizeof(*cgpu));
+    assert(cgpu != NULL);
+
+    memset(cgpu, 0, sizeof(*cgpu));
+    cgpu->drv = &bitmineA1_drv;
+    cgpu->name = "BitmineA1";
+    cgpu->threads = 1;
+    cgpu->device_data = a1;
+
+    a1->cgpu = cgpu;
+
+    size_t i;
+    for ( i = 0; i < MAX_KM_IC; ++i) {
+        init_one_chip( ctx, i);
+    }
+
+
+    // Finally, add the cgpu
+    add_cgpu(cgpu);
 }
 
 
