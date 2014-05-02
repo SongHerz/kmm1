@@ -108,13 +108,10 @@ unsigned work_state[32] ={
 
 
 struct A1_chip {
-	int last_queued_id;
-	struct work *work[32];
+	struct work *work;
 	/* stats */
 	int hw_errors;
-	int stales;
 	int nonces_found;
-	int nonce_ranges_done;
 
 	/* systime in ms when chip was disabled */
 	int cooldown_begin;
@@ -242,37 +239,42 @@ static char get_1st_nonce(struct A1_chain *a1, uint32_t *nonce) {
 /* reset input work queues in chip chain */
 static bool abort_work(struct A1_chain *a1)
 {
-	/* drop jobs already queued: reset strategy 0xed */
-	// return cmd_RESET_BCAST(a1, 0xed);
+    // Reset all chips
+    uint8_t i;
+    for( i = 0; i < a1->num_chips; ++i) {
+        if ( !chip_select( i) || !chip_reset( a1->spi_ctx)) {
+            return false;
+        }
+    }
     return true;
 }
 
 /********** driver interface */
-void exit_A1_chain(struct A1_chain *a1)
-{
-	if (a1 == NULL)
-		return;
-	free(a1->chips);
-	a1->chips = NULL;
-	spi_exit(a1->spi_ctx);
-	a1->spi_ctx = NULL;
-	free(a1);
+
+/*
+ * id: chip id
+ */
+static void init_one_chip( struct spi_ctx *ctx, unsigned int id) {
+    /* TODO: SHOULD RETURN A STRUCTURE THAT PRESENTS A CHIP. */
+    if ( !chip_reset( ctx)) {
+        applog(LOG_ERR, "Failed to reset chip %u", id);
+        return;
+    }
 }
 
-struct A1_chain *init_A1_chain(struct spi_ctx *ctx)
+struct A1_chain *init_A1_chain( struct cgpu_info *cgpu, struct spi_ctx *ctx)
 {
-	int i;
 	struct A1_chain *a1 = malloc(sizeof(*a1));
 	assert(a1 != NULL);
 
 	applog(LOG_DEBUG, "A1 init chain");
 	memset(a1, 0, sizeof(*a1));
-	a1->spi_ctx = ctx;
-
+    a1->cgpu = cgpu;
 	a1->num_chips = MAX_KM_IC;
 	if (a1->num_chips == 0)
 		goto failure;
-	
+	a1->spi_ctx = ctx;
+
 	applog(LOG_WARNING, "spidev%d.%d: Found %d A1 chips",
 	       a1->spi_ctx->config.bus, a1->spi_ctx->config.cs_line,
 	       a1->num_chips);
@@ -285,11 +287,21 @@ struct A1_chain *init_A1_chain(struct spi_ctx *ctx)
 	mutex_init(&a1->lock);
 	INIT_LIST_HEAD(&a1->active_wq.head);
 
+    size_t i;
+    for ( i = 0; i < a1->num_chips; ++i) {
+        init_one_chip( ctx, i);
+    }
+
 	return a1;
 
 failure:
-	exit_A1_chain(a1);
-	return NULL;
+    if (a1) {
+        if (a1->chips) {
+            free(a1->chips);
+        }
+        free(a1);
+    }
+    return NULL;
 }
 
 static bool submit_a_nonce(struct thr_info *thr, struct work *work, uint32_t nonce) {
@@ -312,16 +324,6 @@ static bool submit_a_nonce(struct thr_info *thr, struct work *work, uint32_t non
 }
 
 
-/*
- * id: chip id
- */
-static void init_one_chip( struct spi_ctx *ctx, unsigned int id) {
-    /* TODO: SHOULD RETURN A STRUCTURE THAT PRESENTS A CHIP. */
-    if ( !chip_reset( ctx)) {
-        applog(LOG_ERR, "Failed to reset chip %u", id);
-        return;
-    }
-}
 
 /* Probe SPI channel and register chip chain */
 void A1_detect(bool hotplug)
@@ -348,26 +350,18 @@ void A1_detect(bool hotplug)
         return;
     }
 	
-    struct A1_chain *a1 = init_A1_chain(ctx);
-    if (a1 == NULL)
-        return;
-
     struct cgpu_info *cgpu = malloc(sizeof(*cgpu));
     assert(cgpu != NULL);
+
+    struct A1_chain *a1 = init_A1_chain(cgpu, ctx);
+    if (a1 == NULL)
+        return;
 
     memset(cgpu, 0, sizeof(*cgpu));
     cgpu->drv = &bitmineA1_drv;
     cgpu->name = "BitmineA1";
     cgpu->threads = 1;
     cgpu->device_data = a1;
-
-    a1->cgpu = cgpu;
-
-    size_t i;
-    for ( i = 0; i < MAX_KM_IC; ++i) {
-        init_one_chip( ctx, i);
-    }
-
 
     // Finally, add the cgpu
     add_cgpu(cgpu);
@@ -401,7 +395,7 @@ static int64_t A1_scanwork(struct thr_info *thr)
 			//work_pool_p = &work_pool[0];
 re_req:		
 			//fil work here
-			for(i=0;i< MAX_KM_IC;i++){
+			for(i=0;i < a1->num_chips;i++){
 				work_pool_p = &work_pool[i];
 				//applog(LOG_ERR, "check work %d state ID %d  buf address is %x", i , work_state[i] , work_pool_p);
 				if( work_state[i] == 0 ){
@@ -419,7 +413,7 @@ re_req:
 			}		
 			int try_time =0;
 			int j;
-			for(j=0;j<MAX_KM_IC;j++){
+			for(j=0;j < a1->num_chips;j++){
 				if ( !chip_select(j)) {
                     applog(LOG_ERR, "Failed to select chip %d", j);
                     continue;
@@ -516,7 +510,7 @@ static void A1_flush_work(struct cgpu_info *cgpu)
 
 	applog(LOG_DEBUG, "A1 running flushwork");
 
-	int i;
+	size_t i;
 
 	mutex_lock(&a1->lock);
 	/* stop chips hashing current work */
@@ -525,19 +519,15 @@ static void A1_flush_work(struct cgpu_info *cgpu)
 	}
 	/* flush the work chips were currently hashing */
 	for (i = 0; i < a1->num_chips; i++) {
-		int j;
 		struct A1_chip *chip = &a1->chips[i];
-		for (j = 0; j < 4; j++) {
-			struct work *work = chip->work[j];
-			if (work == NULL)
-				continue;
-			applog(LOG_DEBUG, "flushing chip %d, work %d: 0x%p",
-			       i, j + 1, work);
-			work_completed(cgpu, work);
-			chip->work[j] = NULL;
-		}
-		chip->last_queued_id = 0;
-	}
+        struct work *work = chip->work;
+        if (work == NULL) {
+            continue;
+        }
+        applog(LOG_DEBUG, "flushing chip %d, work: 0x%p", i, work);
+        work_completed( cgpu, work);
+        chip->work = NULL;
+    }
 	/* flush queued work */
 	applog(LOG_DEBUG, "flushing queued work...");
 	while (a1->active_wq.num_elems > 0) {
