@@ -206,6 +206,7 @@ static uint8_t *cmd_READ_RESULT_BCAST(struct A1_chain *a1)
 	int tx_len2 = 8;
 	int chip_num;
 	char mask;
+#if 0
 	//applog(LOG_ERR, "cmd_READ_RESULT_BCAST");
 	memset(a1->spi_tx, 0, tx_len);
 	a1->spi_tx[0] = 0x40|63;		//read statue reg
@@ -216,6 +217,12 @@ static uint8_t *cmd_READ_RESULT_BCAST(struct A1_chain *a1)
 	a1->spi_tx[9] = 0xff;
 	//applog(LOG_ERR, "spi transfer");
 	bool retval = spi_transfer(a1->spi_ctx, a1->spi_tx, a1->spi_rx, tx_len);
+#else
+    uint8_t status;
+    bool r = chip_status( a1->spi_ctx, &status);
+    assert( r);
+    a1->spi_rx[1] = status;
+#endif
 	
 	
 	//applog(LOG_ERR, "read result is %x , %x " ,a1->spi_rx[0] , a1->spi_rx[1]);
@@ -323,34 +330,38 @@ static bool set_work(struct A1_chain *a1, struct work *work)
 	return retval;
 }
 
-static char get_nonce(struct A1_chain *a1, uint8_t *nonce)
-{
-	uint8_t *ret = cmd_READ_RESULT_BCAST(a1);
-	//applog(LOG_ERR, " ret is %x ", ret[1]);
-	if (ret == NULL)
-		return false;
-	if ((ret[1]&0x03) == 0x00) {
-		//applog(LOG_ERR, "busy");
-		return 0;
-	}
-	if ( (ret[1]&0x01) == 0x01 )
-	{
-		//applog(LOG_ERR, "allow and send work");
-		return 1;
-	}
-	if ( (ret[1]&0x02) == 0x02 ){
-		//applog(LOG_ERR, "read nonce");
-		
-	
-		//add read nonce here
-		//memcpy(nonce, ret + 2, 4);
-		*nonce = *(ret+9);
-		*(nonce + 1) = *(ret+7);
-		*(nonce + 2) = *(ret+5);
-		*(nonce + 3) = *(ret+3);
-		return 2;
-	}
-	return -1;
+static char get_1st_nonce(struct A1_chain *a1, uint32_t *nonce) {
+    uint8_t status;
+    bool ret = chip_status( a1->spi_ctx, &status);
+    assert( ret);
+
+    if ( STATUS_R_READY( status)) {
+        unsigned int grp = 0;
+        if ( STATUS_NONCE_GRP3_RDY( status)) {
+            grp = 3;
+        }
+        else if ( STATUS_NONCE_GRP2_RDY( status)) {
+            grp = 2;
+        }
+        else if ( STATUS_NONCE_GRP1_RDY( status)) {
+            grp = 1;
+        }
+        else {
+            assert( STATUS_NONCE_GRP0_RDY( status));
+            grp = 0;
+        }
+
+        bool ret2 = chip_read_nonce( a1->spi_ctx, grp, nonce);
+        assert( ret2);
+        bool ret3 = chip_reset( a1->spi_ctx);
+        assert( ret3);
+        return 2;
+    } else if ( STATUS_W_ALLOW( status)) {
+        return 1;
+    }
+    else {  // chip busy
+        return 0;
+    }
 }
 
 /* reset input work queues in chip chain */
@@ -541,7 +552,7 @@ re_req:
                 }
 				work_pool_p = &work_pool[j];
 				//applog(LOG_ERR, "get nonce %d state %d  buf address is %x", j , work_state[j] , work_pool_p);
-				res	= get_nonce(a1, (uint8_t*)&nonce);				
+				res	= get_1st_nonce(a1, &nonce);				
 				switch(res) {
 				case 3: //inv state
 					goto rec_out;
@@ -552,7 +563,6 @@ re_req:
 					applog(LOG_ERR, "time out");
 					work_state[j] = 0;
 				} else {
-					nonce = bswap_32(nonce);
 					nonce = nonce + 1;
 					if( (work != NULL) && (nonce!=NULL)){
 						for(i=0;i<4;i++){

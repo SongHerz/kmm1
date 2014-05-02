@@ -2,6 +2,7 @@
 #include <stdint.h> // For various data types
 #include <termios.h>
 
+#include "logging.h"
 #include "spi-context.h"
 
 ///////////////////////////////////////////////////
@@ -75,11 +76,11 @@ bool chip_reset(struct spi_ctx *ctx) {
 #define STATUS_NONCE_GRP2_RDY(status)   (((status) >> 4) & 0x01)
 #define STATUS_NONCE_GRP3_RDY(status)   (((status) >> 5) & 0x01)
 
-bool chip_status(struct spi_ctx *ctx, int *status) {
+bool chip_status(struct spi_ctx *ctx, uint8_t *status) {
     uint8_t tx[2];
     uint8_t rx[2];
 
-    tx[0] = CMD_WR | STATUS_ADDR;
+    tx[0] = CMD_RD | STATUS_ADDR;
     tx[1] = 0xff;   // any data
 
     if (!spi_transfer(ctx, tx, rx, sizeof(tx))) {
@@ -127,6 +128,40 @@ bool chip_write_job(struct spi_ctx *ctx, const uint8_t *midstate, const uint8_t 
     uint8_t dummy[JOB_LENGTH];
     return spi_transfer(ctx, tx, dummy, JOB_LENGTH);
 }
+
+// Read one nonce, according to group number.
+// grp: 0, 1, 2, 3
+// Write nonce to *nonce
+bool chip_read_nonce(struct spi_ctx *ctx, const unsigned int grp, uint32_t *nonce) {
+    assert( ctx);
+    assert( nonce);
+    assert( grp >= 0 && grp <= 3);
+
+    uint8_t tx[8];
+    uint8_t rx[8];
+
+    memset( tx, 0, sizeof( tx));
+
+    const uint8_t base = NONCE_GRP_BASE_ADDR(grp);
+    tx[0] = CMD_RD | base;
+    tx[2] = CMD_RD | base + 1;
+    tx[4] = CMD_RD | base + 2;
+    tx[6] = CMD_RD | base + 3;
+
+    if (!spi_transfer( ctx, tx, rx, sizeof(tx))) {
+        return false;
+    }
+
+    uint8_t *p = (uint8_t*)nonce;
+    *p = rx[1];
+    *(p + 1) = rx[3];
+    *(p + 2) = rx[5];
+    *(p + 3) = rx[7];
+
+    return true;
+}
+
+
 
 
 ///////////////////////////////////////////////////
