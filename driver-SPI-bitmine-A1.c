@@ -136,7 +136,6 @@ struct A1_chip {
 };
 
 struct A1_chain {
-	int board_id;
 	struct cgpu_info *cgpu;
 	int num_chips;
 	int num_cores;
@@ -278,30 +277,21 @@ void exit_A1_chain(struct A1_chain *a1)
 
 struct A1_chain *init_A1_chain(struct spi_ctx *ctx)
 {
-    const int board_id = 0;
 	int i;
 	struct A1_chain *a1 = malloc(sizeof(*a1));
 	assert(a1 != NULL);
 
-	applog(LOG_DEBUG, "%d: A1 init chain", a1->board_id);
+	applog(LOG_DEBUG, "A1 init chain");
 	memset(a1, 0, sizeof(*a1));
 	a1->spi_ctx = ctx;
-	a1->board_id = board_id;
 
-	a1->num_chips = 32;
+	a1->num_chips = MAX_KM_IC;
 	if (a1->num_chips == 0)
 		goto failure;
-	//set pll here by maych
-	for(i=0;i<a1->num_chips;i++)
-	{	
-		//set pll point 1
-	}
 	
-	
-	
-	applog(LOG_WARNING, "spidev%d.%d: %d: Found %d A1 chips",
+	applog(LOG_WARNING, "spidev%d.%d: Found %d A1 chips",
 	       a1->spi_ctx->config.bus, a1->spi_ctx->config.cs_line,
-	       a1->board_id, a1->num_chips);
+	       a1->num_chips);
 
 	/* override max number of active chips if requested */
 	a1->num_active_chips = a1->num_chips;
@@ -309,8 +299,8 @@ struct A1_chain *init_A1_chain(struct spi_ctx *ctx)
 	a1->chips = calloc(a1->num_active_chips, sizeof(struct A1_chip));
 	assert (a1->chips != NULL);
 
-	applog(LOG_WARNING, "%d: found %d chips with total %d active cores",
-	       a1->board_id, a1->num_active_chips, a1->num_cores);
+	applog(LOG_WARNING, "found %d chips with total %d active cores",
+	       a1->num_active_chips, a1->num_cores);
 
 	mutex_init(&a1->lock);
 	INIT_LIST_HEAD(&a1->active_wq.head);
@@ -525,8 +515,8 @@ static bool A1_queue_full(struct cgpu_info *cgpu)
 	struct work *work;
 
 	mutex_lock(&a1->lock);
-	applog(LOG_DEBUG, "%d, A1 running queue_full: %d/%d",
-	       a1->board_id, a1->active_wq.num_elems, a1->num_active_chips);
+	applog(LOG_DEBUG, "A1 running queue_full: %d/%d",
+	       a1->active_wq.num_elems, a1->num_active_chips);
 
 	if (a1->active_wq.num_elems >= a1->num_active_chips * 2)
 		queue_full = true;
@@ -543,16 +533,15 @@ static bool A1_queue_full(struct cgpu_info *cgpu)
 static void A1_flush_work(struct cgpu_info *cgpu)
 {
 	struct A1_chain *a1 = cgpu->device_data;
-	int bid = a1->board_id;
 
-	applog(LOG_DEBUG, "%d: A1 running flushwork", bid);
+	applog(LOG_DEBUG, "A1 running flushwork");
 
 	int i;
 
 	mutex_lock(&a1->lock);
 	/* stop chips hashing current work */
 	if (!abort_work(a1)) {
-		applog(LOG_ERR, "%d: failed to abort work in chip chain!", bid);
+		applog(LOG_ERR, "failed to abort work in chip chain!");
 	}
 	/* flush the work chips were currently hashing */
 	for (i = 0; i < a1->num_active_chips; i++) {
@@ -562,15 +551,15 @@ static void A1_flush_work(struct cgpu_info *cgpu)
 			struct work *work = chip->work[j];
 			if (work == NULL)
 				continue;
-			applog(LOG_DEBUG, "%d: flushing chip %d, work %d: 0x%p",
-			       bid, i, j + 1, work);
+			applog(LOG_DEBUG, "flushing chip %d, work %d: 0x%p",
+			       i, j + 1, work);
 			work_completed(cgpu, work);
 			chip->work[j] = NULL;
 		}
 		chip->last_queued_id = 0;
 	}
 	/* flush queued work */
-	applog(LOG_DEBUG, "%d: flushing queued work...", bid);
+	applog(LOG_DEBUG, "flushing queued work...");
 	while (a1->active_wq.num_elems > 0) {
 		struct work *work = wq_dequeue(&a1->active_wq);
 		assert(work != NULL);
@@ -582,8 +571,7 @@ static void A1_flush_work(struct cgpu_info *cgpu)
 static void A1_get_statline_before(char *buf, size_t len, struct cgpu_info *cgpu)
 {
 	struct A1_chain *a1 = cgpu->device_data;
-	tailsprintf(buf, len, " %2d:%2d/%3d ",
-		    a1->board_id, a1->num_active_chips, a1->num_cores);
+	tailsprintf(buf, len, "%2d/%3d ", a1->num_active_chips, a1->num_cores);
 }
 
 struct device_drv bitmineA1_drv = {
