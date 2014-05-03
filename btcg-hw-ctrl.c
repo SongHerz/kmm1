@@ -20,6 +20,7 @@
 #define START_WORK_ADDR     (uint8_t)(44)
 #define PLL_ADDR            (uint8_t)(45)
 #define NONCE_GRP_BASE_ADDR(n)  (uint8_t)(46 + (n)*4)
+#define CLEAN_ADDR  (uint8_t)(62)
 #define STATUS_ADDR (uint8_t)(63)
 
 // PLL frequency
@@ -161,8 +162,14 @@ bool chip_read_nonce(struct spi_ctx *ctx, const unsigned int grp, uint32_t *nonc
     return true;
 }
 
+bool chip_clean(struct spi_ctx *ctx) {
+    assert( ctx);
 
+    uint8_t tx[2] = { CMD_RD | CLEAN_ADDR, 0xff /* any value*/ };
+    uint8_t dummy[2];
 
+    return spi_transfer( ctx, tx, dummy, sizeof( tx));
+}
 
 ///////////////////////////////////////////////////
 // UART related hardware control
