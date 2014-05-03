@@ -70,6 +70,7 @@ bool chip_reset(struct spi_ctx *ctx) {
 
 #define STATUS_W_ALLOW(status)  ((status) & 0x1)
 #define STATUS_R_READY(status)  ((status) & 0x2)
+#define STATUS_BUSY(status)     ((status) && 0x3 == 0)
 #define STATUS_NONCE_GRP0_RDY(status)   (((status) >> 2) & 0x01)
 #define STATUS_NONCE_GRP1_RDY(status)   (((status) >> 3) & 0x01)
 #define STATUS_NONCE_GRP2_RDY(status)   (((status) >> 4) & 0x01)
