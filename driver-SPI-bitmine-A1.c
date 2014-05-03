@@ -81,20 +81,6 @@ static struct work *wq_dequeue(struct work_queue *wq)
 }
 
 
-struct work work_pool[32];
-struct work *work_pool_p = work_pool;
-unsigned work_state[32] ={
-	0x000,0x00,0x00,0x00,0x000,0x00,0x00,0x00,
-	0x000,0x00,0x00,0x00,0x000,0x00,0x00,0x00,
-	0x000,0x00,0x00,0x00,0x000,0x00,0x00,0x00,
-	0x000,0x00,0x00,0x00,0x000,0x00,0x00,0x00
-};
-
-
-
-
-
-
 /********** chip and chain context structures */
 /*
  * if not cooled sufficiently, communication fails and chip is temporary
@@ -112,6 +98,7 @@ struct A1_chip {
 	struct work *work;
 	/* stats */
 	int hw_errors;
+    int timeouts;
 	int nonces_found;
 
 	/* systime in ms when chip was disabled */
@@ -331,21 +318,38 @@ static bool submit_a_nonce(struct thr_info *thr, struct work *work,
     return false;
 }
 
-static bool may_submit_may_get_work(struct cgpu_info *cgpu, struct thr_info *thr,
-        struct A1_chain *chain, unsigned int id) {
+typedef enum {
+    SW_SUCC,
+    SW_CHIP_SEL_ERR,
+    SW_CHIP_HW_ERR,
+    SW_CHIP_TIMEOUT,
+    SW_CHIP_BUSY,
+    SW_QUE_UNDER_FLOW
+} SW_STATUS;
+
+static SW_STATUS may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
+    struct cgpu_info *cgpu = thr->cgpu;
+    struct A1_chain *chain = cgpu->device_data;
+
     assert( id < chain->num_chips);
+
     if ( !chip_select(id)) {
         applog(LOG_ERR, "Failed to select chip %d", id);
-        return false;
+        return SW_CHIP_SEL_ERR;
     }
 
     struct spi_ctx *ctx = chain->spi_ctx;
     struct A1_chip *chip = chain->chips + id;
     assert( chip);
 
-#define RETURN_FALSE    do {    \
+#define RETURN_CHIP_HW_ERR do { \
     chip->hw_errors++;          \
-    return false;               \
+    return SW_CHIP_HW_ERR;      \
+} while(0)
+
+#define RETURN_CHIP_TIMEOUT do {    \
+    chip->timeouts++;               \
+    return SW_CHIP_TIMEOUT;         \
 } while(0)
 
 
@@ -353,11 +357,11 @@ static bool may_submit_may_get_work(struct cgpu_info *cgpu, struct thr_info *thr
         uint8_t status;
         if ( !chip_status( ctx, &status)) {
             applog(LOG_ERR, "Failed to get chip status %d", id);
-            RETURN_FALSE;
+            RETURN_CHIP_HW_ERR;
         }
 
         if (STATUS_BUSY( status)) {
-            return true;
+            return SW_CHIP_BUSY;
         }
 
         if (STATUS_R_READY( status)) {
@@ -372,26 +376,23 @@ static bool may_submit_may_get_work(struct cgpu_info *cgpu, struct thr_info *thr
             else if ( STATUS_NONCE_GRP1_RDY( status)) {
                 grp = 1;
             }
-            else {
-                assert( STATUS_NONCE_GRP0_RDY( status));
+            else if ( STATUS_NONCE_GRP0_RDY( status)) {
                 grp = 0;
+            }
+            else {
+                RETURN_CHIP_TIMEOUT;
             }
 
             uint32_t nonce;
             if (!chip_read_nonce( ctx, grp, &nonce)) {
                 applog(LOG_ERR, "Failed to get nonce from chip %u", id);
-                RETURN_FALSE;
+                RETURN_CHIP_HW_ERR;
             }
             if (!chip_reset( ctx)) {
                 applog(LOG_ERR, "Failed to reset, after get 1st nonce for chip %u", id);
-                RETURN_FALSE;
+                RETURN_CHIP_HW_ERR;
             }
             // submit nonce
-            if (nonce == 0) {
-                // FIXME: ASK myc, why nonce == 0 means time out
-                applog(LOG_ERR, "time out");
-                RETURN_FALSE;
-            }
             uint32_t actual_nonce;
             if (submit_a_nonce( thr, chip->work, nonce, &actual_nonce)) {
                 applog(LOG_ERR, "submit nonce ok, nonce %u, actual nonce %u, for chip %u",
@@ -399,17 +400,17 @@ static bool may_submit_may_get_work(struct cgpu_info *cgpu, struct thr_info *thr
             }
             else {
                 applog(LOG_ERR, "Failed to submit nonce %u, for chip %u", nonce, id);
-                RETURN_FALSE;
+                RETURN_CHIP_HW_ERR;
             }
 
-            // FIXME: MAY BE WORK_COMPLETED SHOULD BE CALLED
+            work_completed(cgpu, chip->work);
             chip->work = NULL;
         }
 
-        if (STATUS_W_ALLOW(status)) {
-            // FIXME: MAY BE WORK_COMPLETED SHOULD BE CALLED
+        if (STATUS_W_ALLOW(status) && chip->work) {
             // Empty the work for the chip, and a new work will be assigned to
             // the chip later.
+            work_completed(cgpu, chip->work);
             chip->work = NULL;
         }
     }
@@ -418,17 +419,17 @@ static bool may_submit_may_get_work(struct cgpu_info *cgpu, struct thr_info *thr
         chip->work = wq_dequeue(&chain->active_wq);
         if (chip->work == NULL) {
             applog(LOG_ERR, "queue under flow");
-            return false;
+            return SW_QUE_UNDER_FLOW;
         }
         if (!chip_write_job( ctx, chip->work->midstate, chip->work->data + 64)) {
             // give back job
             work_completed( cgpu, chip->work);
             chip->work = NULL;
             applog( LOG_ERR, "Failed to write job to chip %u", id);
-            RETURN_FALSE;
+            RETURN_CHIP_HW_ERR;
         }
     }
-    return true;
+    return SW_SUCC;
 }
 
 
@@ -479,24 +480,22 @@ void A1_detect(bool hotplug)
 
 static int64_t A1_scanwork(struct thr_info *thr)
 {
-	struct cgpu_info *cgpu = thr->cgpu;
-	struct A1_chain *a1 = cgpu->device_data;
+	struct A1_chain *chain = thr->cgpu->device_data;
 
 	applog(LOG_DEBUG, "A1 running scanwork");
-	mutex_lock(&a1->lock);
+	mutex_lock(&chain->lock);
 
 	struct work *work;
 
     size_t k;
 	for (k = 0; k < 10; k++) {
         int id;
-        for(id = 0;id < a1->num_chips; id++){
-            may_submit_may_get_work(cgpu, thr, a1, id);
-            //applog(LOG_ERR, "check work %d state ID %d  buf address is %x", i , work_state[i] , work_pool_p);
+        for(id = 0;id < chain->num_chips; id++){
+            may_submit_may_get_work(thr, id);
         }		
 	}	
 	
-	mutex_unlock(&a1->lock);
+	mutex_unlock(&chain->lock);
 	
     // TODO: SHOULD RETURN (int64_t)(number of hashes done)
 	return 0;
