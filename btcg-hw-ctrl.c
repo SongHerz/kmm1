@@ -4,6 +4,10 @@
 
 #include "spi-context.h"
 
+#if 1
+#include "logging.h"
+#endif
+
 ///////////////////////////////////////////////////
 // SPI related hardware control
 ///////////////////////////////////////////////////
@@ -76,6 +80,7 @@ bool chip_reset(struct spi_ctx *ctx) {
 #define STATUS_NONCE_GRP1_RDY(status)   (((status) >> 3) & 0x01)
 #define STATUS_NONCE_GRP2_RDY(status)   (((status) >> 4) & 0x01)
 #define STATUS_NONCE_GRP3_RDY(status)   (((status) >> 5) & 0x01)
+#define STATUS_NONCE_NO_GRP_RDY(status) ((((status) >> 2) & 0x0f) == 0)
 
 bool chip_status(struct spi_ctx *ctx, uint8_t *status) {
     uint8_t tx[2];
@@ -127,13 +132,22 @@ bool chip_write_job(struct spi_ctx *ctx, const uint8_t *midstate, const uint8_t 
     uint8_t *tx = __create_job( midstate, wdata);
     assert( tx);
     uint8_t dummy[JOB_LENGTH];
+#if 0
     return spi_transfer(ctx, tx, dummy, JOB_LENGTH);
+#else
+    size_t i = 0;
+    bool succ = true;
+    for (i = 0; i < JOB_LENGTH; i += 2) {
+        succ &= spi_transfer( ctx, tx + i, dummy, 2);
+    }
+    return succ;
+#endif
 }
 
 // Read one nonce, according to group number.
 // grp: 0, 1, 2, 3
 // Write nonce to *nonce
-bool chip_read_nonce(struct spi_ctx *ctx, const unsigned int grp, uint32_t *nonce) {
+static bool __chip_read_nonce(struct spi_ctx *ctx, const unsigned int grp, uint32_t *nonce) {
     assert( ctx);
     assert( nonce);
     assert( grp >= 0 && grp <= 3);
@@ -144,14 +158,28 @@ bool chip_read_nonce(struct spi_ctx *ctx, const unsigned int grp, uint32_t *nonc
     memset( tx, 0, sizeof( tx));
 
     const uint8_t base = NONCE_GRP_BASE_ADDR(grp);
+#if 1
+    applog(LOG_ERR, "Grp base addr %u", base);
+#endif
     tx[0] = CMD_RD | base;
     tx[2] = CMD_RD | base + 1;
     tx[4] = CMD_RD | base + 2;
     tx[6] = CMD_RD | base + 3;
 
+#if 0
     if (!spi_transfer( ctx, tx, rx, sizeof(tx))) {
         return false;
     }
+#else
+    size_t i = 0;
+    bool succ = true;
+    for ( i = 0; i < 8; i += 2) {
+        succ &= spi_transfer( ctx, tx + i, rx + i, 2);
+    }
+    if (!succ) {
+        return false;
+    }
+#endif
 
     uint8_t *p = (uint8_t*)nonce;
     *p = rx[1];
@@ -160,6 +188,32 @@ bool chip_read_nonce(struct spi_ctx *ctx, const unsigned int grp, uint32_t *nonc
     *(p + 3) = rx[7];
 
     return true;
+}
+
+bool chip_read_nonce(struct spi_ctx *ctx, const unsigned int grp, uint32_t *nonce) {
+    uint32_t nonce0;
+    uint32_t nonce1;
+
+    if ( !__chip_read_nonce( ctx, grp, &nonce0)
+            || !__chip_read_nonce( ctx, grp, &nonce1)) {
+        return false;
+    }
+
+    if ( nonce0 == nonce1) {
+        *nonce = nonce0;
+        return true;
+    }
+
+    uint32_t nonce2;
+    if ( !__chip_read_nonce( ctx, grp, &nonce2)) {
+        return false;
+    }
+
+    if ( nonce0 == nonce2 || nonce1 == nonce2) {
+        *nonce = nonce2;
+        return true;
+    }
+    return false;
 }
 
 bool chip_clean(struct spi_ctx *ctx) {
