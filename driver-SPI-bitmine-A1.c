@@ -361,9 +361,6 @@ static bool may_submit_may_get_work(struct cgpu_info *cgpu, struct thr_info *thr
         }
 
         if (STATUS_R_READY( status)) {
-#if 1
-            applog(LOG_ERR, "chip %d ready", id);
-#endif
             // READ 1st nonce
             unsigned int grp = 0;
             if ( STATUS_NONCE_GRP3_RDY( status)) {
@@ -418,17 +415,11 @@ static bool may_submit_may_get_work(struct cgpu_info *cgpu, struct thr_info *thr
     }
 
     if ( chip->work == NULL) {
-#if 1
-        applog(LOG_ERR, "chip %d, before get work", id);
-#endif
         chip->work = wq_dequeue(&chain->active_wq);
         if (chip->work == NULL) {
             applog(LOG_ERR, "queue under flow");
             return false;
         }
-#if 1
-        applog(LOG_ERR, "chip %d, after get work", id);
-#endif
         if (!chip_write_job( ctx, chip->work->midstate, chip->work->data + 64)) {
             // give back job
             work_completed( cgpu, chip->work);
@@ -436,9 +427,6 @@ static bool may_submit_may_get_work(struct cgpu_info *cgpu, struct thr_info *thr
             applog( LOG_ERR, "Failed to write job to chip %u", id);
             RETURN_FALSE;
         }
-#if 1
-        applog(LOG_ERR, "chip %d, after write job", id);
-#endif
     }
     return true;
 }
@@ -489,8 +477,6 @@ void A1_detect(bool hotplug)
 
 
 
-
-#if 1
 static int64_t A1_scanwork(struct thr_info *thr)
 {
 	struct cgpu_info *cgpu = thr->cgpu;
@@ -510,121 +496,11 @@ static int64_t A1_scanwork(struct thr_info *thr)
         }		
 	}	
 	
-rec_out:
 	mutex_unlock(&a1->lock);
 	
     // TODO: SHOULD RETURN (int64_t)(number of hashes done)
 	return 0;
 }
-#else
-static int64_t A1_scanwork(struct thr_info *thr)
-{
-	int i;
-	struct cgpu_info *cgpu = thr->cgpu;
-	struct A1_chain *a1 = cgpu->device_data;
-
-	applog(LOG_DEBUG, "A1 running scanwork");
-	uint32_t nonce;
-	bool work_updated = false;
-
-	mutex_lock(&a1->lock);
-
-	int res;
-	
-	applog(LOG_ERR, "start");
-	struct work *work;
-	applog(LOG_ERR, "SPI fd2 is  %x", a1->spi_ctx->fd);
-	while(1)
-	{
-			//work_pool_p = &work_pool[0];
-re_req:		
-			//fil work here
-			for(i=0;i < a1->num_chips;i++){
-				work_pool_p = &work_pool[i];
-				//applog(LOG_ERR, "check work %d state ID %d  buf address is %x", i , work_state[i] , work_pool_p);
-				if( work_state[i] == 0 ){
-					work = get_work(thr, thr->id);
-					work_pool[i] = *work;
-					work_state[i] = 1;
-                    if ( !chip_select(i)) {
-                        applog(LOG_ERR, "Failed to select chip %d", i);
-                        continue;
-                    }
-					set_work(a1, work_pool_p);	
-					applog(LOG_ERR, "get and set work ID %d state %d  buf address is %x data is %x, %x , %x , %x", i , work_state[i] , work_pool_p , 
-						*(work_pool_p->data),*(work_pool_p->data+1),*(work_pool_p->data+2),*(work_pool_p->data+3));
-				} 
-			}		
-			int try_time =0;
-			int j;
-			for(j=0;j < a1->num_chips;j++){
-				if ( !chip_select(j)) {
-                    applog(LOG_ERR, "Failed to select chip %d", j);
-                    continue;
-                }
-				work_pool_p = &work_pool[j];
-				//applog(LOG_ERR, "get nonce %d state %d  buf address is %x", j , work_state[j] , work_pool_p);
-				res	= get_1st_nonce(a1, &nonce);				
-				switch(res) {
-				case 3: //inv state
-					goto rec_out;
-					break;
-				case 2:			//ready
-				if( nonce == 0x00)
-				{
-					applog(LOG_ERR, "time out");
-					work_state[j] = 0;
-				} else {
-					if( (work != NULL) && (nonce!=NULL)){
-                        uint32_t actual_nonce;
-                        if (submit_a_nonce( thr, work_pool_p, nonce, &actual_nonce)) {
-                            applog(LOG_ERR, " submit nonce ok ID is %d nonce is %x addr is %x" , j , actual_nonce , work_pool_p);
-                            work_state[j] = 0;
-                            applog(LOG_ERR, "change 2 state %d 0" , j);
-                            //goto rec_out;
-                            goto submit_end;
-                            break;
-                        }
-                        else {
-                            applog(LOG_ERR, "get nonce ID %d state %d  buf address is %x", j , work_state[j] , work_pool_p);
-                            applog(LOG_ERR, "hw err nonce is %x, line: %d" , nonce, __LINE__);
-                        }
-                        work_state[j] = 0;
-                        applog(LOG_ERR, "change 1 state %d 0" , j);
-                        applog(LOG_ERR, "submit nonce end");
-						} else {
-							applog(LOG_ERR, "submit end");
-							goto rec_out;
-						}
-submit_end:				
-					break;
-				case 0:
-					//applog(LOG_ERR, " chip busy");
-					break;
-				case 1:		//allow change chip state
-					applog(LOG_ERR, "allow send");
-					work_state[j] = 0;
-					applog(LOG_ERR, "change state %d 0" , j);
-					break;
-				default:
-					applog(LOG_ERR, "error state");
-					break;
-		
-				}
-			}
-		}
-	}	
-	
-rec_out:
-	mutex_unlock(&a1->lock);
-	/* in case of no progress, prevent busy looping */
-	if (!work_updated)
-		cgsleep_ms(160);
-	
-    // TODO: SHOULD RETURN (int64_t)(number of hashes done)
-	return 0;
-}
-#endif
 
 
 /* queue two work items per chip in chain */
