@@ -158,7 +158,7 @@ static bool __chip_read_nonce(struct spi_ctx *ctx, const unsigned int grp, uint3
     memset( tx, 0, sizeof( tx));
 
     const uint8_t base = NONCE_GRP_BASE_ADDR(grp);
-#if 1
+#if 0
     applog(LOG_ERR, "Grp base addr %u", base);
 #endif
     tx[0] = CMD_RD | base;

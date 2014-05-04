@@ -96,10 +96,15 @@ static struct work *wq_dequeue(struct work_queue *wq)
 struct A1_chip {
     unsigned int id;
 	struct work *work;
+
 	/* stats */
-	int hw_errors;
-    int timeouts;
-	int nonces_found;
+	uint32_t hw_errs;
+    float ave_hw_errs;
+
+    uint32_t timeouts;
+    float ave_timeouts;
+
+	uint32_t nonces_found;
 
 	/* systime in ms when chip was disabled */
 	int cooldown_begin;
@@ -108,6 +113,43 @@ struct A1_chip {
 	/* mark chip disabled, do not try to re-enable it */
 	bool disabled;
 };
+
+/********************************************/
+/* MACROS that operate on A1_chip structure */
+/********************************************/
+#define __CHIP_INC_AVE(val)     do {    \
+    val = 0.5 + (val) / 2.0;            \
+} while(0)
+
+#define __CHIP_DEC_AVE(val)     do {    \
+    val = 0.0 + (val) / 2.0;            \
+} while(0)
+
+
+/* Operations on hw err */
+#define CHIP_INC_HW_ERR(chip)   do {    \
+    chip->hw_errs += 1;                 \
+    __CHIP_INC_AVE(chip->ave_hw_errs);  \
+} while(0)
+
+#define CHIP_NO_HW_ERR(chip)    __CHIP_DEC_AVE(chip->hw_errs)
+
+/* Operations on timeouts */
+#define CHIP_INC_TIMEOUT(chip)  do {    \
+    chip->timeouts += 1;                \
+    __CHIP_INC_AVE(chip->ave_timeouts); \
+} while(0)
+
+#define CHIP_NO_TIMEOUT(chip)   __CHIP_DEC_AVE(chip->ave_timeouts)
+
+/* Operations on work */
+#define CHIP_GIVE_BACK_WORK(cgpu, chip)  do {   \
+    if (chip->work) {                           \
+        work_completed( cgpu, chip->work);      \
+        chip->work = NULL;                      \
+    }                                           \
+} while(0)
+
 
 struct A1_chain {
 	struct cgpu_info *cgpu;
@@ -414,30 +456,31 @@ static SW_STATUS may_submit_may_get_work(struct thr_info *thr, unsigned int id) 
     struct A1_chip *chip = chain->chips + id;
     assert( chip);
 
-#define GIVE_BACK_WORK(cgpu, chip)  do {    \
-    if (chip->work) {                       \
-        work_completed( cgpu, chip->work);  \
-        chip->work = NULL;                  \
-    }                                       \
-} while(0)
 
 #define RESET_AND_GIVE_BACK_WORK()  do {        \
     (void)chip_reset( ctx);                     \
     applog(LOG_ERR, "Reset chip %u", chip->id); \
-    GIVE_BACK_WORK( cgpu, chip);                \
+    CHIP_GIVE_BACK_WORK( cgpu, chip);           \
 } while(0)
 
 #define RETURN_CHIP_HW_ERR do { \
-    chip->hw_errors++;          \
+    CHIP_INC_HW_ERR(chip);      \
     RESET_AND_GIVE_BACK_WORK(); \
     return SW_CHIP_HW_ERR;      \
 } while(0)
 
 #define RETURN_CHIP_TIMEOUT do {    \
-    chip->timeouts++;               \
+    CHIP_INC_TIMEOUT(chip);         \
     RESET_AND_GIVE_BACK_WORK();     \
     return SW_CHIP_TIMEOUT;         \
 } while(0)
+
+#define RETURN_SUCC do {    \
+    CHIP_NO_HW_ERR(chip);   \
+    CHIP_NO_TIMEOUT(chip);  \
+    return SW_SUCC;         \
+} while(0)
+
 
 
     if ( chip->work) {
@@ -511,7 +554,7 @@ static SW_STATUS may_submit_may_get_work(struct thr_info *thr, unsigned int id) 
             // }
             // Empty the work for the chip, and a new work will be assigned to
             // the chip later.
-            GIVE_BACK_WORK( cgpu, chip);
+            CHIP_GIVE_BACK_WORK( cgpu, chip);
         }
     }
 
@@ -533,7 +576,7 @@ static SW_STATUS may_submit_may_get_work(struct thr_info *thr, unsigned int id) 
             RETURN_CHIP_HW_ERR;
         }
     }
-    return SW_SUCC;
+    RETURN_SUCC;
 }
 
 
