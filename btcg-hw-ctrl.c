@@ -5,6 +5,7 @@
 #include "spi-context.h"
 
 #if 1
+#include <pthread.h>
 #include "logging.h"
 #endif
 
@@ -75,7 +76,7 @@ bool chip_reset(struct spi_ctx *ctx) {
 
 #define STATUS_W_ALLOW(status)  ((status) & 0x1)
 #define STATUS_R_READY(status)  ((status) & 0x2)
-#define STATUS_BUSY(status)     ((status) && 0x3 == 0)
+#define STATUS_BUSY(status)     (((status) & 0x3) == 0)
 #define STATUS_NONCE_GRP0_RDY(status)   (((status) >> 2) & 0x01)
 #define STATUS_NONCE_GRP1_RDY(status)   (((status) >> 3) & 0x01)
 #define STATUS_NONCE_GRP2_RDY(status)   (((status) >> 4) & 0x01)
@@ -129,6 +130,9 @@ static uint8_t *__create_job( const uint8_t *midstate, const uint8_t *wdata)
 
 
 bool chip_write_job(struct spi_ctx *ctx, const uint8_t *midstate, const uint8_t *wdata) {
+#if 1
+    applog(LOG_ERR, "pthread id: %x", pthread_self());
+#endif
     uint8_t *tx = __create_job( midstate, wdata);
     assert( tx);
     uint8_t dummy[JOB_LENGTH];
@@ -139,6 +143,24 @@ bool chip_write_job(struct spi_ctx *ctx, const uint8_t *midstate, const uint8_t 
     bool succ = true;
     for (i = 0; i < JOB_LENGTH; i += 2) {
         succ &= spi_transfer( ctx, tx + i, dummy, 2);
+#if 1
+        unsigned diffs = 0;
+        if ( i < 88) {
+            // Make sure what written is actually written.
+            // read back the byte just written
+            uint8_t itx[2] = { (0x3f & tx[i]) | CMD_RD, 0xff};
+            uint8_t irx[2];
+            bool r = spi_transfer( ctx, itx, irx, 2);
+            assert( r) ;
+            if ( tx[i + 1] != irx[1]) {
+                applog(LOG_ERR, "diff pos: %zd", i);
+                diffs += 1;
+            }
+        }
+        if ( diffs != 0) {
+            applog(LOG_ERR, "job diffs: %d", diffs);
+        }
+#endif
     }
     return succ;
 #endif
