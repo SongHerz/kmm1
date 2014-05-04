@@ -30,7 +30,7 @@
 ///////////////////////////////////////////////////////////////////////////
 
 
-#define MAX_KM_IC	8
+#define MAX_KM_IC	14
  
 ///////////////////////////////////////////////////////////////////////////
 
@@ -627,7 +627,7 @@ static int64_t A1_scanwork(struct thr_info *thr)
 	for (k = 0; k < 10; k++) {
         int id;
         for(id = 0;id < chain->num_chips; id++){
-            if (id != 0 && id != 1 && id != 6 && id != 7) {
+            if (id != 0 && id != 1 && id != 6 && id != 7 && id != 12 && id != 13) {
                 continue;
             }
             may_submit_may_get_work(thr, id);
