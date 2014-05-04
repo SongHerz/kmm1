@@ -101,8 +101,8 @@ struct A1_chip {
 	uint32_t hw_errs;
     float ave_hw_errs;
 
-    uint32_t timeouts;
-    float ave_timeouts;
+    uint32_t fst_r_rdy_timeouts;
+    float ave_fst_r_rdy_timeouts;
 
 	uint32_t nonces_found;
 
@@ -135,12 +135,12 @@ struct A1_chip {
 #define CHIP_NO_HW_ERR(chip)    __CHIP_DEC_AVE(chip->hw_errs)
 
 /* Operations on timeouts */
-#define CHIP_INC_TIMEOUT(chip)  do {    \
-    chip->timeouts += 1;                \
-    __CHIP_INC_AVE(chip->ave_timeouts); \
+#define CHIP_INC_FST_R_RDY_TIMEOUT(chip)  do {    \
+    chip->fst_r_rdy_timeouts += 1;                \
+    __CHIP_INC_AVE(chip->ave_fst_r_rdy_timeouts); \
 } while(0)
 
-#define CHIP_NO_TIMEOUT(chip)   __CHIP_DEC_AVE(chip->ave_timeouts)
+#define CHIP_NO_FST_R_RDY_TIMEOUT(chip)   __CHIP_DEC_AVE(chip->ave_fst_r_rdy_timeouts)
 
 /* Operations on work */
 #define CHIP_GIVE_BACK_WORK(cgpu, chip)  do {   \
@@ -364,20 +364,26 @@ typedef enum {
     SW_SUCC,
     SW_CHIP_SEL_ERR,
     SW_CHIP_HW_ERR,
-    SW_CHIP_TIMEOUT,
     SW_CHIP_BUSY,
     SW_QUE_UNDER_FLOW
 } SW_STATUS;
 
+
 /*
- * Get number of groups.
- * status:  status of the chip.
- * grps: an addr for holding valid groups.
- *       grps should be able to hold at least 4 valid groups.
- * n:   number of actual groups.
+ * Read valid nonces from a chip.
  */
-static void ready_groups( const uint8_t status, unsigned int *grps, size_t *n) {
+static bool submit_ready_nonces( struct thr_info *thr, struct A1_chip *chip, const uint8_t status) {
+#if 0
+    // int start = get_current_ms();
+    applog( LOG_ERR, "thr = %p", thr);
+    // int end = get_current_ms();
+    // applog( LOG_ERR, "MS: %d", end - start);
+#else
+    usleep(10000);
+#endif
+
     assert( STATUS_R_READY( status));
+    unsigned int grps[4];
     size_t num_grps = 0;
 
     if ( STATUS_NONCE_GRP0_RDY( status)) {
@@ -392,31 +398,31 @@ static void ready_groups( const uint8_t status, unsigned int *grps, size_t *n) {
     if ( STATUS_NONCE_GRP3_RDY( status)) {
         grps[ num_grps++] = 3;
     }
-    *n = num_grps;
-}
 
-/*
- * Read valid nonces from a chip.
- * grps:    an array that contains ready groups.
- * n:       number of ready groups.
- */
-static bool submit_ready_nonces( struct thr_info *thr, struct A1_chip *chip,
-        const unsigned int *grps, const size_t n) {
-#if 0
-    // int start = get_current_ms();
-    applog( LOG_ERR, "thr = %p", thr);
-    // int end = get_current_ms();
-    // applog( LOG_ERR, "MS: %d", end - start);
-#else
-    usleep(10000);
+    if ( num_grps == 0) {
+        applog(LOG_ERR, "R_READY is high, but no group ready for chip %u", chip->id);
+        return false;
+    }
+#if 1
+    {
+        size_t j;
+        applog(LOG_ERR, "================================ for chip %u", chip->id);
+        char s[1024];
+        int n = snprintf( s, sizeof(s), "grps = ");
+        for ( j = 0; j < num_grps; ++j) {
+            n += snprintf( s + n, sizeof(s) - n, "%u, ", grps[j]);
+        }
+        applog(LOG_ERR, "%sfor chip %u", s, chip->id);
+    } 
 #endif
 
+    // Get ready groups
     struct A1_chain *chain = thr->cgpu->device_data;
     struct spi_ctx *ctx = chain->spi_ctx;
 
     bool all_submit_succ = true;
     size_t i;
-    for ( i = 0; i < n; ++i) {
+    for ( i = 0; i < num_grps; ++i) {
         uint32_t nonce;
         if (!chip_read_nonce( ctx, grps[i], &nonce)) {
             applog(LOG_ERR, "Failed to get nonce from chip %u", chip->id);
@@ -469,16 +475,10 @@ static SW_STATUS may_submit_may_get_work(struct thr_info *thr, unsigned int id) 
     return SW_CHIP_HW_ERR;      \
 } while(0)
 
-#define RETURN_CHIP_TIMEOUT do {    \
-    CHIP_INC_TIMEOUT(chip);         \
-    RESET_AND_GIVE_BACK_WORK();     \
-    return SW_CHIP_TIMEOUT;         \
-} while(0)
-
-#define RETURN_SUCC do {    \
-    CHIP_NO_HW_ERR(chip);   \
-    CHIP_NO_TIMEOUT(chip);  \
-    return SW_SUCC;         \
+#define RETURN_SUCC do {                \
+    CHIP_NO_HW_ERR(chip);               \
+    CHIP_NO_FST_R_RDY_TIMEOUT(chip);    \
+    return SW_SUCC;                     \
 } while(0)
 
 
@@ -505,30 +505,11 @@ static SW_STATUS may_submit_may_get_work(struct thr_info *thr, unsigned int id) 
         applog(LOG_ERR, "CHIP R_READY");
 #endif
             // READ nonces
-            unsigned int grps[4];
-            size_t num_grps;
-            ready_groups( status, grps, &num_grps);
-            if ( num_grps == 0) {
-                applog(LOG_ERR, "Time out for chip %u", id);
-                RETURN_CHIP_TIMEOUT;
-            }
-#if 1
-            {
-                size_t j;
-                applog(LOG_ERR, "================================ for chip %u", id);
-                char s[1024];
-                int n = snprintf( s, sizeof(s), "grps = ");
-                for ( j = 0; j < num_grps; ++j) {
-                    n += snprintf( s + n, sizeof(s) - n, "%u, ", grps[j]);
-                }
-                applog(LOG_ERR, "%sfor chip %u", s, id);
-            } 
-#endif
-            const bool submit_succ =  submit_ready_nonces( thr, chip, grps, num_grps);
+            const bool submit_succ =  submit_ready_nonces( thr, chip, status);
 
             /* DO always clean chip status */
 #if 1
-            applog(LOG_ERR, "Just before chip_clean() for chip %u", id);
+            applog(LOG_ERR, "chip_clean() for chip %u", id);
 #endif
             if ( !chip_clean( ctx)) {
                 applog(LOG_ERR, "Failed to clean status from chip %u", id);
@@ -544,16 +525,6 @@ static SW_STATUS may_submit_may_get_work(struct thr_info *thr, unsigned int id) 
 #if 0
             applog(LOG_ERR, "CHIP W_ALLOW for chip %u", id);
 #endif
-            // wait for w_allow changes to zero
-            // {
-            //     uint8_t s;
-            //     do {
-            //         bool r = chip_status( chain->spi_ctx, &s);
-            //         assert( r);
-            //     } while( STATUS_W_ALLOW( s));
-            // }
-            // Empty the work for the chip, and a new work will be assigned to
-            // the chip later.
             CHIP_GIVE_BACK_WORK( cgpu, chip);
         }
     }
