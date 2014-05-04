@@ -167,14 +167,14 @@ static void __future_time(unsigned ms, struct timeval *tv) {
 static void CHIP_NEW_WORK(struct cgpu_info *cgpu, struct A1_chip *chip, struct work *newwork) {
     if (chip->work) {
         work_completed( cgpu, chip->work);
-        chip->work = newwork;
     }
+    chip->work = newwork;
     if (newwork) {
         // Now, set it to 15 minutes.
         __future_time( 15 * 60 * 1000, &chip->this_work_deadline);
     }
     else {
-        timerclear( chip->this_work_deadline);
+        timerclear( &chip->this_work_deadline);
     }
     chip->this_work_nonces = 0;
 }
