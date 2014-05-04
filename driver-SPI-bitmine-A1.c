@@ -168,8 +168,13 @@ static void CHIP_NEW_WORK(struct cgpu_info *cgpu, struct A1_chip *chip, struct w
     }
     chip->work = newwork;
     if (newwork) {
-        // Now, set it to 15 minutes.
-        __future_time( 15 * 60 * 1000, &chip->this_work_deadline);
+        // The min freq of the chip is 200MHz.
+        // With 32 cores each chip, the min hash rate is 6.4G/s.
+        // The full search space is 4G, so the max time is about
+        // 4G/(6.4G/s) = (4/6.4)s, which is less than 1s.
+        // Now, set the time out to 2s, and the safe margin is large
+        // enough.
+        __future_time( 2 * 1000, &chip->this_work_deadline);
     }
     else {
         timerclear( &chip->this_work_deadline);
