@@ -30,7 +30,7 @@
 ///////////////////////////////////////////////////////////////////////////
 
 
-#define MAX_KM_IC	1
+#define MAX_KM_IC	8
  
 ///////////////////////////////////////////////////////////////////////////
 
@@ -397,6 +397,9 @@ static bool submit_ready_nonces( struct thr_info *thr, struct A1_chip *chip,
 }
 
 static SW_STATUS may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
+#if 0
+    applog( LOG_ERR, "%s for chip %u", __func__, id);
+#endif
     struct cgpu_info *cgpu = thr->cgpu;
     struct A1_chain *chain = cgpu->device_data;
 
@@ -411,13 +414,28 @@ static SW_STATUS may_submit_may_get_work(struct thr_info *thr, unsigned int id) 
     struct A1_chip *chip = chain->chips + id;
     assert( chip);
 
+#define GIVE_BACK_WORK(cgpu, chip)  do {    \
+    if (chip->work) {                       \
+        work_completed( cgpu, chip->work);  \
+        chip->work = NULL;                  \
+    }                                       \
+} while(0)
+
+#define RESET_AND_GIVE_BACK_WORK()  do {        \
+    (void)chip_reset( ctx);                     \
+    applog(LOG_ERR, "Reset chip %u", chip->id); \
+    GIVE_BACK_WORK( cgpu, chip);                \
+} while(0)
+
 #define RETURN_CHIP_HW_ERR do { \
     chip->hw_errors++;          \
+    RESET_AND_GIVE_BACK_WORK(); \
     return SW_CHIP_HW_ERR;      \
 } while(0)
 
 #define RETURN_CHIP_TIMEOUT do {    \
     chip->timeouts++;               \
+    RESET_AND_GIVE_BACK_WORK();     \
     return SW_CHIP_TIMEOUT;         \
 } while(0)
 
@@ -455,9 +473,12 @@ static SW_STATUS may_submit_may_get_work(struct thr_info *thr, unsigned int id) 
             {
                 size_t j;
                 applog(LOG_ERR, "================================ for chip %u", id);
+                char s[1024];
+                int n = snprintf( s, sizeof(s), "grps = ");
                 for ( j = 0; j < num_grps; ++j) {
-                    applog(LOG_ERR, "grps[%d] = %d, for chip %u", j, grps[j], id);
+                    n += snprintf( s + n, sizeof(s) - n, "%u, ", grps[j]);
                 }
+                applog(LOG_ERR, "%sfor chip %u", s, id);
             } 
 #endif
             const bool submit_succ =  submit_ready_nonces( thr, chip, grps, num_grps);
@@ -477,7 +498,7 @@ static SW_STATUS may_submit_may_get_work(struct thr_info *thr, unsigned int id) 
         }
         else if (STATUS_W_ALLOW(status)) {
             assert( chip->work);
-#if 1
+#if 0
             applog(LOG_ERR, "CHIP W_ALLOW for chip %u", id);
 #endif
             // wait for w_allow changes to zero
@@ -490,8 +511,7 @@ static SW_STATUS may_submit_may_get_work(struct thr_info *thr, unsigned int id) 
             // }
             // Empty the work for the chip, and a new work will be assigned to
             // the chip later.
-            work_completed(cgpu, chip->work);
-            chip->work = NULL;
+            GIVE_BACK_WORK( cgpu, chip);
         }
     }
 
@@ -509,8 +529,6 @@ static SW_STATUS may_submit_may_get_work(struct thr_info *thr, unsigned int id) 
 #endif
         if (!chip_write_job( ctx, chip->work->midstate, chip->work->data + 64)) {
             // give back job
-            work_completed( cgpu, chip->work);
-            chip->work = NULL;
             applog( LOG_ERR, "Failed to write job to chip %u", id);
             RETURN_CHIP_HW_ERR;
         }
@@ -577,6 +595,9 @@ static int64_t A1_scanwork(struct thr_info *thr)
 	for (k = 0; k < 10; k++) {
         int id;
         for(id = 0;id < chain->num_chips; id++){
+            if (id != 0 && id != 1 && id != 6 && id != 7) {
+                continue;
+            }
             may_submit_may_get_work(thr, id);
         }		
 	}	
