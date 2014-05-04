@@ -95,21 +95,27 @@ static struct work *wq_dequeue(struct work_queue *wq)
 
 struct A1_chip {
     unsigned int id;
+    
+    /********************************/
+    /* data relates to current work */
+    /********************************/
 	struct work *work;
+    struct timeval this_work_deadline;
+    uint32_t this_work_nonces;
 
-	/* statistics */
-	uint32_t nonces_found;
+    /*********************/
+	/* global statistics */
+    /*********************/
+	uint32_t total_nonces;
+
+    /* consecutive errors */
+    uint32_t consec_errs;
 
 	uint32_t hw_errs;
     float ave_hw_errs;
 
-    uint32_t fst_r_rdy_timeouts;
-    float ave_fst_r_rdy_timeouts;
-
 	/* systime in ms when chip was disabled */
 	int cooldown_begin;
-	/* number of consecutive failures to access the chip */
-	int fail_count;
 	/* mark chip disabled, do not try to re-enable it */
 	bool disabled;
 };
@@ -127,32 +133,51 @@ struct A1_chip {
 
 /* Operations on nonces_found */
 #define CHIP_INC_NONCE(chip)    do {    \
-    chip->nonces_found += 1;            \
+    chip->this_work_nonces += 1;        \
+    chip->total_nonces += 1;            \
 } while(0)
 
-/* Operations on hw err */
-#define CHIP_INC_HW_ERR(chip)   do {    \
+/* Operations on err */
+#define CHIP_INC_ERR(chip)  do {        \
+    chip->consec_errs += 1;             \
     chip->hw_errs += 1;                 \
     __CHIP_INC_AVE(chip->ave_hw_errs);  \
 } while(0)
 
-#define CHIP_NO_HW_ERR(chip)    __CHIP_DEC_AVE(chip->hw_errs)
-
-/* Operations on timeouts */
-#define CHIP_INC_FST_R_RDY_TIMEOUT(chip)  do {    \
-    chip->fst_r_rdy_timeouts += 1;                \
-    __CHIP_INC_AVE(chip->ave_fst_r_rdy_timeouts); \
+#define CHIP_NO_ERR(chip)   do {    \
+    chip->consec_errs = 0;          \
+    __CHIP_DEC_AVE(chip->hw_errs);  \
 } while(0)
-
-#define CHIP_NO_FST_R_RDY_TIMEOUT(chip)   __CHIP_DEC_AVE(chip->ave_fst_r_rdy_timeouts)
 
 /* Operations on work */
-#define CHIP_GIVE_BACK_WORK(cgpu, chip)  do {   \
-    if (chip->work) {                           \
-        work_completed( cgpu, chip->work);      \
-        chip->work = NULL;                      \
-    }                                           \
-} while(0)
+/* Get a future time which is 'ms' milliseconds after current time.
+ * The future time is stored to tv.
+ */
+static void __future_time(unsigned ms, struct timeval *tv) {
+    struct timeval incremental;
+    incremental.tv_sec = ms / 1000;
+    incremental.tv_usec = (ms % 1000) * 1000;
+
+    struct timeval curtime;
+    cgtime( &curtime);
+
+    timeradd( &curtime, &incremental, tv);
+}
+
+static void CHIP_NEW_WORK(struct cgpu_info *cgpu, struct A1_chip *chip, struct work *newwork) {
+    if (chip->work) {
+        work_completed( cgpu, chip->work);
+        chip->work = newwork;
+    }
+    if (newwork) {
+        // Now, set it to 15 minutes.
+        __future_time( 15 * 60 * 1000, &chip->this_work_deadline);
+    }
+    else {
+        timerclear( chip->this_work_deadline);
+    }
+    chip->this_work_nonces = 0;
+}
 
 
 struct A1_chain {
@@ -364,14 +389,6 @@ static bool submit_a_nonce(struct thr_info *thr, struct work *work,
     return false;
 }
 
-typedef enum {
-    SW_SUCC,
-    SW_CHIP_SEL_ERR,
-    SW_CHIP_HW_ERR,
-    SW_CHIP_BUSY,
-    SW_QUE_UNDER_FLOW
-} SW_STATUS;
-
 
 /*
  * Read valid nonces from a chip.
@@ -449,7 +466,7 @@ static bool submit_ready_nonces( struct thr_info *thr, struct A1_chip *chip, con
     return all_submit_succ;
 }
 
-static SW_STATUS may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
+static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
 #if 0
     applog( LOG_ERR, "%s for chip %u", __func__, id);
 #endif
@@ -460,7 +477,7 @@ static SW_STATUS may_submit_may_get_work(struct thr_info *thr, unsigned int id) 
 
     if ( !chip_select(id)) {
         applog(LOG_ERR, "Failed to select chip %d", id);
-        return SW_CHIP_SEL_ERR;
+        return;
     }
 
     struct spi_ctx *ctx = chain->spi_ctx;
@@ -468,41 +485,34 @@ static SW_STATUS may_submit_may_get_work(struct thr_info *thr, unsigned int id) 
     assert( chip);
 
 
-#define RESET_AND_GIVE_BACK_WORK()  do {        \
+#define __RESET_AND_GIVE_BACK_WORK()  do {      \
     (void)chip_reset( ctx);                     \
     applog(LOG_ERR, "Reset chip %u", chip->id); \
-    CHIP_GIVE_BACK_WORK( cgpu, chip);           \
+    CHIP_NEW_WORK( cgpu, chip, NULL);           \
 } while(0)
 
-#define RETURN_CHIP_HW_ERR do { \
-    CHIP_INC_HW_ERR(chip);      \
-    RESET_AND_GIVE_BACK_WORK(); \
-    return SW_CHIP_HW_ERR;      \
+#define FIX_CHIP_ERR_AND_RETURN do {    \
+    CHIP_INC_ERR(chip);                 \
+    __RESET_AND_GIVE_BACK_WORK();       \
+    return;                             \
 } while(0)
-
-#define RETURN_SUCC do {                \
-    CHIP_NO_HW_ERR(chip);               \
-    CHIP_NO_FST_R_RDY_TIMEOUT(chip);    \
-    return SW_SUCC;                     \
-} while(0)
-
 
 
     if ( chip->work) {
 #if 0
         applog(LOG_ERR, "WE ARE HERE 11111111");
 #endif
+        // FIXME: check w_allow timeout
+        //
+
         uint8_t status;
         if ( !chip_status( ctx, &status)) {
             applog(LOG_ERR, "Failed to get chip status %d", id);
-            RETURN_CHIP_HW_ERR;
+            FIX_CHIP_ERR_AND_RETURN;
         }
 
         if (STATUS_BUSY( status)) {
-#if 0
-        applog(LOG_ERR, "CHIP BUSY");
-#endif
-            return SW_CHIP_BUSY;
+            return;
         }
 
         if (STATUS_R_READY( status)) {
@@ -518,11 +528,11 @@ static SW_STATUS may_submit_may_get_work(struct thr_info *thr, unsigned int id) 
 #endif
             if ( !chip_clean( ctx)) {
                 applog(LOG_ERR, "Failed to clean status from chip %u", id);
-                RETURN_CHIP_HW_ERR;
+                FIX_CHIP_ERR_AND_RETURN;
             }
             if ( !submit_succ) {
                 applog(LOG_ERR, "Failed to submit nonce for chip %u", id);
-                RETURN_CHIP_HW_ERR;
+                FIX_CHIP_ERR_AND_RETURN;
             }
         }
         else if (STATUS_W_ALLOW(status)) {
@@ -530,7 +540,8 @@ static SW_STATUS may_submit_may_get_work(struct thr_info *thr, unsigned int id) 
 #if 0
             applog(LOG_ERR, "CHIP W_ALLOW for chip %u", id);
 #endif
-            CHIP_GIVE_BACK_WORK( cgpu, chip);
+            CHIP_NO_ERR( chip);
+            CHIP_NEW_WORK( cgpu, chip, NULL);
         }
     }
 
@@ -538,21 +549,23 @@ static SW_STATUS may_submit_may_get_work(struct thr_info *thr, unsigned int id) 
 #if 0
         applog(LOG_ERR, "WE ARE HERE 222222");
 #endif
-        chip->work = wq_dequeue(&chain->active_wq);
-        if (chip->work == NULL) {
+        struct work *new_work = wq_dequeue(&chain->active_wq);
+        if (new_work == NULL) {
             applog(LOG_ERR, "queue under flow");
-            return SW_QUE_UNDER_FLOW;
+            return;
         }
+        // FIXME: CHECK if nonce calculated for the last job.
+        CHIP_NEW_WORK( cgpu, chip, new_work);
 #if 1
         applog(LOG_ERR, "new work %p for chip %u", chip->work, id);
 #endif
         if (!chip_write_job( ctx, chip->work->midstate, chip->work->data + 64)) {
             // give back job
             applog( LOG_ERR, "Failed to write job to chip %u", id);
-            RETURN_CHIP_HW_ERR;
+            FIX_CHIP_ERR_AND_RETURN;
         }
     }
-    RETURN_SUCC;
+    return;
 }
 
 
