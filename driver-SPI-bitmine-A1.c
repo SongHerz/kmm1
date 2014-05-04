@@ -97,14 +97,14 @@ struct A1_chip {
     unsigned int id;
 	struct work *work;
 
-	/* stats */
+	/* statistics */
+	uint32_t nonces_found;
+
 	uint32_t hw_errs;
     float ave_hw_errs;
 
     uint32_t fst_r_rdy_timeouts;
     float ave_fst_r_rdy_timeouts;
-
-	uint32_t nonces_found;
 
 	/* systime in ms when chip was disabled */
 	int cooldown_begin;
@@ -125,6 +125,10 @@ struct A1_chip {
     val = 0.0 + (val) / 2.0;            \
 } while(0)
 
+/* Operations on nonces_found */
+#define CHIP_INC_NONCE(chip)    do {    \
+    chip->nonces_found += 1;            \
+} while(0)
 
 /* Operations on hw err */
 #define CHIP_INC_HW_ERR(chip)   do {    \
@@ -437,6 +441,7 @@ static bool submit_ready_nonces( struct thr_info *thr, struct A1_chip *chip, con
             all_submit_succ = false;
         }
         else {
+            CHIP_INC_NONCE(chip);
             applog(LOG_ERR, "submit nonce ok, nonce %u, actual nonce %u, work %p, for chip %u",
                     nonce, actual_nonce, chip->work, chip->id);
         }
