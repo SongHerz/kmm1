@@ -101,7 +101,6 @@ struct A1_chip {
     /********************************/
 	struct work *work;
     struct timeval this_work_deadline;
-    uint32_t this_work_nonces;
 
     /*********************/
 	/* global statistics */
@@ -133,7 +132,6 @@ struct A1_chip {
 
 /* Operations on nonces_found */
 #define CHIP_INC_NONCE(chip)    do {    \
-    chip->this_work_nonces += 1;        \
     chip->total_nonces += 1;            \
 } while(0)
 
@@ -176,7 +174,13 @@ static void CHIP_NEW_WORK(struct cgpu_info *cgpu, struct A1_chip *chip, struct w
     else {
         timerclear( &chip->this_work_deadline);
     }
-    chip->this_work_nonces = 0;
+}
+
+static inline bool CHIP_IS_WORK_TIMEOUT( const struct A1_chip *chip) {
+    assert( chip->work != NULL);
+    struct timeval curtime;
+    cgtime( &curtime);
+    return timercmp( &chip->this_work_deadline, &curtime, <);
 }
 
 
@@ -476,7 +480,7 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
     assert( id < chain->num_chips);
 
     if ( !chip_select(id)) {
-        applog(LOG_ERR, "Failed to select chip %d", id);
+        applog(LOG_ERR, "Failed to select chip %u", id);
         return;
     }
 
@@ -502,19 +506,15 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
 #if 0
         applog(LOG_ERR, "WE ARE HERE 11111111");
 #endif
-        // FIXME: check w_allow timeout
-        //
-
         uint8_t status;
         if ( !chip_status( ctx, &status)) {
-            applog(LOG_ERR, "Failed to get chip status %d", id);
+            applog(LOG_ERR, "Failed to get status for chip %u", id);
             FIX_CHIP_ERR_AND_RETURN;
         }
 
-        if (STATUS_BUSY( status)) {
-            return;
-        }
-
+        /* The chip status check order is important.
+         * Do NOT change the order without strong reason.
+         */
         if (STATUS_R_READY( status)) {
 #if 0
         applog(LOG_ERR, "CHIP R_READY");
@@ -535,6 +535,9 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
                 FIX_CHIP_ERR_AND_RETURN;
             }
         }
+        /* FIXME: For performance, I think I should write
+         * 'if (STATUS_W_ALLOW...)' but not 'else if (STATUS_W_ALLOW...)'
+         */
         else if (STATUS_W_ALLOW(status)) {
             assert( chip->work);
 #if 0
@@ -542,6 +545,15 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
 #endif
             CHIP_NO_ERR( chip);
             CHIP_NEW_WORK( cgpu, chip, NULL);
+        }
+        else if ( CHIP_IS_WORK_TIMEOUT( chip)) {
+            // check w_allow timeout
+            applog(LOG_ERR, "Work time out for chip %u", id);
+            FIX_CHIP_ERR_AND_RETURN;
+        }
+        /* FIXME: I think no else is needed here */
+        else if (STATUS_BUSY( status)) {
+            return;
         }
     }
 
@@ -554,7 +566,6 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
             applog(LOG_ERR, "queue under flow");
             return;
         }
-        // FIXME: CHECK if nonce calculated for the last job.
         CHIP_NEW_WORK( cgpu, chip, new_work);
 #if 1
         applog(LOG_ERR, "new work %p for chip %u", chip->work, id);
