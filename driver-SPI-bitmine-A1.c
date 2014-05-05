@@ -82,17 +82,6 @@ static struct work *wq_dequeue(struct work_queue *wq)
 
 
 /********** chip and chain context structures */
-/*
- * if not cooled sufficiently, communication fails and chip is temporary
- * disabled. we let it inactive for 30 seconds to cool down
- *
- * TODO: to be removed after bring up / test phase
- */
-#define COOLDOWN_MS (30 * 1000)
-/* if after this number of retries a chip is still inaccessible, disable it */
-#define DISABLE_CHIP_FAIL_THRESHOLD	7
-
-
 struct A1_chip {
     unsigned int id;
     
@@ -101,23 +90,19 @@ struct A1_chip {
     /********************************/
 	struct work *work;
     struct timeval this_work_deadline;
-    uint32_t this_work_nonces;
+    unsigned int this_work_nonces;
 
     /*********************/
 	/* global statistics */
     /*********************/
-	uint32_t total_nonces;
+	unsigned int total_nonces;
 
     /* consecutive errors */
-    uint32_t consec_errs;
+    unsigned int consec_errs;
+    unsigned int max_consec_errs;
 
 	uint32_t hw_errs;
     float ave_hw_errs;
-
-	/* systime in ms when chip was disabled */
-	int cooldown_begin;
-	/* mark chip disabled, do not try to re-enable it */
-	bool disabled;
 };
 
 /********************************************/
@@ -140,13 +125,16 @@ struct A1_chip {
 /* Operations on err */
 #define CHIP_INC_ERR(chip)  do {        \
     chip->consec_errs += 1;             \
+    if (chip->max_consec_errs < chip->consec_errs) {    \
+        chip->max_consec_errs = chip->consec_errs;      \
+    }                                                   \
     chip->hw_errs += 1;                 \
     __CHIP_INC_AVE(chip->ave_hw_errs);  \
 } while(0)
 
 #define CHIP_NO_ERR(chip)   do {    \
     chip->consec_errs = 0;          \
-    __CHIP_DEC_AVE(chip->hw_errs);  \
+    __CHIP_DEC_AVE(chip->ave_hw_errs);  \
 } while(0)
 
 /* Operations on work */
@@ -189,6 +177,18 @@ static inline bool CHIP_IS_WORK_TIMEOUT( const struct A1_chip *chip) {
     struct timeval curtime;
     cgtime( &curtime);
     return timercmp( &chip->this_work_deadline, &curtime, <);
+}
+
+/* Show various info of a chip to LOG_ERR */
+static void CHIP_SHOW( const struct A1_chip *chip) {
+    applog(LOG_ERR, "********** chip %u **********", chip->id);
+    applog(LOG_ERR, "work: %p", chip->work);
+    applog(LOG_ERR, "this work nonces: %u", chip->this_work_nonces);
+    applog(LOG_ERR, "total nonces: %u", chip->total_nonces);
+    applog(LOG_ERR, "consecutive errors: %u", chip->consec_errs);
+    applog(LOG_ERR, "max consecutive errors: %u", chip->max_consec_errs);
+    applog(LOG_ERR, "hardware errors: %u", chip->hw_errs);
+    applog(LOG_ERR, "average hardware errors: %f", chip->ave_hw_errs);
 }
 
 
@@ -445,11 +445,23 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
     CHIP_NEW_WORK( cgpu, chip, NULL);           \
 } while(0)
 
+#if 0
 #define FIX_CHIP_ERR_AND_RETURN do {    \
     CHIP_INC_ERR(chip);                 \
     __RESET_AND_GIVE_BACK_WORK();       \
     return;                             \
 } while(0)
+#else
+
+#define FIX_CHIP_ERR_AND_RETURN do {    \
+    CHIP_INC_ERR(chip);                 \
+    applog(LOG_ERR, "Err, just before give work back"); \
+    CHIP_SHOW(chip);                \
+    __RESET_AND_GIVE_BACK_WORK();       \
+    return;                             \
+} while(0)
+
+#endif
 
 
     if ( chip->work) {
@@ -498,8 +510,16 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
                         chip->work, id);
                 FIX_CHIP_ERR_AND_RETURN;
             }
+#if 1
+            applog(LOG_ERR, "Just before claim a succ job");
+            CHIP_SHOW( chip);
+#endif
             CHIP_NO_ERR( chip);
             CHIP_NEW_WORK( cgpu, chip, NULL);
+#if 1
+            applog(LOG_ERR, "Just after claim a succ job");
+            CHIP_SHOW( chip);
+#endif
         }
         else if ( CHIP_IS_WORK_TIMEOUT( chip)) {
             // check w_allow timeout
@@ -524,6 +544,7 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
         CHIP_NEW_WORK( cgpu, chip, new_work);
 #if 1
         applog(LOG_ERR, "new work %p for chip %u", chip->work, id);
+        CHIP_SHOW( chip);
 #endif
         if (!chip_write_job( ctx, chip->work->midstate, chip->work->data + 64)) {
             // give back job
