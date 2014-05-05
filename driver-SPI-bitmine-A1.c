@@ -198,15 +198,18 @@ static inline bool CHIP_IS_WORK_TIMEOUT( const struct BTCG_chip *chip) {
 }
 
 /* Show various info of a chip to LOG_ERR */
-static void CHIP_SHOW( const struct BTCG_chip *chip) {
-    applog(LOG_ERR, "********** chip %u **********", chip->id);
-    applog(LOG_ERR, "work: %p", chip->work);
-    applog(LOG_ERR, "this work nonces: %u", chip->this_work_nonces);
-    applog(LOG_ERR, "total nonces: %u", chip->total_nonces);
-    applog(LOG_ERR, "consecutive errors: %u", chip->consec_errs);
-    applog(LOG_ERR, "max consecutive errors: %u", chip->max_consec_errs);
-    applog(LOG_ERR, "hardware errors: %u", chip->hw_errs);
-    applog(LOG_ERR, "average hardware errors: %f", chip->ave_hw_errs);
+static void CHIP_SHOW( const struct BTCG_chip *chip, bool show_work_info) {
+    applog(LOG_WARNING, "");
+    applog(LOG_WARNING, "********** chip %u **********", chip->id);
+    if (show_work_info) {
+        applog(LOG_WARNING, "work: %p", chip->work);
+        applog(LOG_WARNING, "this work nonces: %u", chip->this_work_nonces);
+    }
+    applog(LOG_WARNING, "total nonces: %u", chip->total_nonces);
+    applog(LOG_WARNING, "consecutive errors: %u", chip->consec_errs);
+    applog(LOG_WARNING, "max consecutive errors: %u", chip->max_consec_errs);
+    applog(LOG_WARNING, "hardware errors: %u", chip->hw_errs);
+    applog(LOG_WARNING, "average hardware errors: %f", chip->ave_hw_errs);
 }
 
 
@@ -664,6 +667,16 @@ static void BTCG_get_statline_before(char *buf, size_t len, struct cgpu_info *cg
 	tailsprintf(buf, len, "%2d ", bd->num_chips);
 }
 
+static void BTCG_thread_shutdown(struct thr_info *thr) {
+    struct BTCG_board *bd = thr->cgpu->device_data;
+    unsigned i;
+	mutex_lock(&bd->lock);
+    for ( i = 0; i < bd->num_chips; ++i) {
+        CHIP_SHOW( bd->chips + i, false);
+    }
+	mutex_unlock(&bd->lock);
+}
+
 struct device_drv bitmineA1_drv = {
 	.drv_id = DRIVER_bitmineA1,
 	.dname = "BitmineA1",
@@ -675,4 +688,6 @@ struct device_drv bitmineA1_drv = {
 	.queue_full = BTCG_queue_full,
 	.flush_work = BTCG_flush_work,
 	.get_statline_before = BTCG_get_statline_before,
+
+    .thread_shutdown = BTCG_thread_shutdown,
 };
