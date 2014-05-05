@@ -445,23 +445,11 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
     CHIP_NEW_WORK( cgpu, chip, NULL);           \
 } while(0)
 
-#if 0
 #define FIX_CHIP_ERR_AND_RETURN do {    \
     CHIP_INC_ERR(chip);                 \
     __RESET_AND_GIVE_BACK_WORK();       \
     return;                             \
 } while(0)
-#else
-
-#define FIX_CHIP_ERR_AND_RETURN do {    \
-    CHIP_INC_ERR(chip);                 \
-    applog(LOG_ERR, "Err, just before give work back"); \
-    CHIP_SHOW(chip);                \
-    __RESET_AND_GIVE_BACK_WORK();       \
-    return;                             \
-} while(0)
-
-#endif
 
 
     if ( chip->work) {
@@ -512,13 +500,11 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
             }
 #if 1
             applog(LOG_ERR, "Just before claim a succ job");
-            CHIP_SHOW( chip);
 #endif
             CHIP_NO_ERR( chip);
             CHIP_NEW_WORK( cgpu, chip, NULL);
 #if 1
             applog(LOG_ERR, "Just after claim a succ job");
-            CHIP_SHOW( chip);
 #endif
         }
         else if ( CHIP_IS_WORK_TIMEOUT( chip)) {
@@ -544,7 +530,6 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
         CHIP_NEW_WORK( cgpu, chip, new_work);
 #if 1
         applog(LOG_ERR, "new work %p for chip %u", chip->work, id);
-        CHIP_SHOW( chip);
 #endif
         if (!chip_write_job( ctx, chip->work->midstate, chip->work->data + 64)) {
             // give back job
