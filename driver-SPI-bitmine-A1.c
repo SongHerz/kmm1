@@ -210,7 +210,7 @@ static void CHIP_SHOW( const struct BTCG_chip *chip) {
 }
 
 
-struct BTCG_chain {
+struct BTCG_board {
 	struct cgpu_info *cgpu;
 	int num_chips;
 	struct spi_ctx *spi_ctx;
@@ -295,46 +295,46 @@ static bool init_a_chip( struct BTCG_chip *chip, struct spi_ctx *ctx, unsigned i
     return true;
 }
 
-static struct BTCG_chain *init_BTCG_chain( struct cgpu_info *cgpu, struct spi_ctx *ctx)
+static struct BTCG_board *init_BTCG_board( struct cgpu_info *cgpu, struct spi_ctx *ctx)
 {
-	struct BTCG_chain *chain = malloc(sizeof(*chain));
-	assert(chain != NULL);
+	struct BTCG_board *bd = malloc(sizeof(*bd));
+	assert(bd != NULL);
 
-	applog(LOG_DEBUG, "BTCG init chain");
-	memset(chain, 0, sizeof(*chain));
-    chain->cgpu = cgpu;
-	chain->num_chips = g_config.num_chips;
-	if (chain->num_chips == 0)
+	applog(LOG_DEBUG, "BTCG init board");
+	memset(bd, 0, sizeof(*bd));
+    bd->cgpu = cgpu;
+	bd->num_chips = g_config.num_chips;
+	if (bd->num_chips == 0)
 		goto failure;
-	chain->spi_ctx = ctx;
+	bd->spi_ctx = ctx;
 
 	applog(LOG_WARNING, "spidev%d.%d: Found %d BTCG chips",
-	       chain->spi_ctx->config.bus, chain->spi_ctx->config.cs_line,
-	       chain->num_chips);
+	       bd->spi_ctx->config.bus, bd->spi_ctx->config.cs_line,
+	       bd->num_chips);
 
-	chain->chips = calloc(chain->num_chips, sizeof(struct BTCG_chip));
-	assert (chain->chips != NULL);
+	bd->chips = calloc(bd->num_chips, sizeof(struct BTCG_chip));
+	assert (bd->chips != NULL);
 
-	applog(LOG_WARNING, "found %d chips", chain->num_chips);
+	applog(LOG_WARNING, "found %d chips", bd->num_chips);
 
-	mutex_init(&chain->lock);
-	INIT_LIST_HEAD(&chain->active_wq.head);
+	mutex_init(&bd->lock);
+	INIT_LIST_HEAD(&bd->active_wq.head);
 
     size_t i;
-    for ( i = 0; i < chain->num_chips; ++i) {
-        if (!init_a_chip( chain->chips + i, ctx, i)) {
+    for ( i = 0; i < bd->num_chips; ++i) {
+        if (!init_a_chip( bd->chips + i, ctx, i)) {
             goto failure;
         }
     }
 
-	return chain;
+	return bd;
 
 failure:
-    if (chain) {
-        if (chain->chips) {
-            free(chain->chips);
+    if (bd) {
+        if (bd->chips) {
+            free(bd->chips);
         }
-        free(chain);
+        free(bd);
     }
     return NULL;
 }
@@ -410,8 +410,8 @@ static bool submit_ready_nonces( struct thr_info *thr, struct BTCG_chip *chip, c
 #endif
 
     // Get ready groups
-    struct BTCG_chain *chain = thr->cgpu->device_data;
-    struct spi_ctx *ctx = chain->spi_ctx;
+    struct BTCG_board *bd = thr->cgpu->device_data;
+    struct spi_ctx *ctx = bd->spi_ctx;
 
     bool all_submit_succ = true;
     size_t i;
@@ -440,17 +440,17 @@ static bool submit_ready_nonces( struct thr_info *thr, struct BTCG_chip *chip, c
 
 static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
     struct cgpu_info *cgpu = thr->cgpu;
-    struct BTCG_chain *chain = cgpu->device_data;
+    struct BTCG_board *bd = cgpu->device_data;
 
-    assert( id < chain->num_chips);
+    assert( id < bd->num_chips);
 
     if ( !chip_select(id)) {
         applog(LOG_ERR, "Failed to select chip %u", id);
         return;
     }
 
-    struct spi_ctx *ctx = chain->spi_ctx;
-    struct BTCG_chip *chip = chain->chips + id;
+    struct spi_ctx *ctx = bd->spi_ctx;
+    struct BTCG_chip *chip = bd->chips + id;
     assert( chip);
 
 
@@ -514,7 +514,7 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
     }
 
     if ( chip->work == NULL) {
-        struct work *new_work = wq_dequeue(&chain->active_wq);
+        struct work *new_work = wq_dequeue(&bd->active_wq);
         if (new_work == NULL) {
             applog(LOG_ERR, "queue under flow");
             return;
@@ -533,7 +533,7 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
 }
 
 
-/* Probe SPI channel and register chip chain */
+/* Probe SPI channel and register chip board */
 void BTCG_detect(bool hotplug)
 {
 	/* no hotplug support for now */
@@ -560,15 +560,15 @@ void BTCG_detect(bool hotplug)
     struct cgpu_info *cgpu = malloc(sizeof(*cgpu));
     assert(cgpu != NULL);
 
-    struct BTCG_chain *chain = init_BTCG_chain(cgpu, ctx);
-    if (chain == NULL)
+    struct BTCG_board *bd = init_BTCG_board(cgpu, ctx);
+    if (bd == NULL)
         return;
 
     memset(cgpu, 0, sizeof(*cgpu));
     cgpu->drv = &bitmineA1_drv;
     cgpu->name = "BitmineA1";
     cgpu->threads = 1;
-    cgpu->device_data = chain;
+    cgpu->device_data = bd;
 
     // Finally, add the cgpu
     add_cgpu(cgpu);
@@ -579,17 +579,17 @@ void BTCG_detect(bool hotplug)
 
 static int64_t BTCG_scanwork(struct thr_info *thr)
 {
-	struct BTCG_chain *chain = thr->cgpu->device_data;
+	struct BTCG_board *bd = thr->cgpu->device_data;
 
 	applog(LOG_DEBUG, "BTCG running scanwork");
-	mutex_lock(&chain->lock);
+	mutex_lock(&bd->lock);
 
 	struct work *work;
 
     size_t k;
 	for (k = 0; k < 10; k++) {
         int id;
-        for(id = 0;id < chain->num_chips; id++){
+        for(id = 0;id < bd->num_chips; id++){
             if (id != 0 && id != 1 && id != 6 && id != 7 && id != 12 && id != 13) {
                 continue;
             }
@@ -597,71 +597,71 @@ static int64_t BTCG_scanwork(struct thr_info *thr)
         }		
 	}	
 	
-	mutex_unlock(&chain->lock);
+	mutex_unlock(&bd->lock);
 	
     // TODO: SHOULD RETURN (int64_t)(number of hashes done)
 	return 0;
 }
 
 
-/* queue two work items per chip in chain */
+/* queue two work items per chip in board */
 static bool BTCG_queue_full(struct cgpu_info *cgpu)
 {
-	struct BTCG_chain *chain = cgpu->device_data;
+	struct BTCG_board *bd = cgpu->device_data;
 	int queue_full = false;
 	struct work *work;
 
-	mutex_lock(&chain->lock);
+	mutex_lock(&bd->lock);
 	applog(LOG_DEBUG, "BTCG running queue_full: %d/%d",
-            chain->active_wq.num_elems, chain->num_chips);
+            bd->active_wq.num_elems, bd->num_chips);
 
-	if (chain->active_wq.num_elems >= chain->num_chips * 2)
+	if (bd->active_wq.num_elems >= bd->num_chips * 2)
 		queue_full = true;
 	else{
 		//push queue
-		applog(LOG_ERR," queue elem add and num is %d",chain->active_wq.num_elems);
-		wq_enqueue(&chain->active_wq, get_queued(cgpu));
+		applog(LOG_ERR," queue elem add and num is %d",bd->active_wq.num_elems);
+		wq_enqueue(&bd->active_wq, get_queued(cgpu));
 	}
-	mutex_unlock(&chain->lock);
+	mutex_unlock(&bd->lock);
 
 	return queue_full;
 }
 
 static void BTCG_flush_work(struct cgpu_info *cgpu)
 {
-	struct BTCG_chain *chain = cgpu->device_data;
+	struct BTCG_board *bd = cgpu->device_data;
 
 	applog(LOG_DEBUG, "BTCG running flushwork");
 
 	size_t i;
 
-	mutex_lock(&chain->lock);
+	mutex_lock(&bd->lock);
 	/* Reset all chips first */
-    for( i = 0; i < chain->num_chips; ++i) {
-        if ( !chip_select( i) || !chip_reset( chain->spi_ctx, g_config.core_clk_mhz)) {
+    for( i = 0; i < bd->num_chips; ++i) {
+        if ( !chip_select( i) || !chip_reset( bd->spi_ctx, g_config.core_clk_mhz)) {
             applog(LOG_ERR, "Failed to abort work for chip %zu", i);
         }
     }
 	/* flush the work chips were currently hashing */
-	for (i = 0; i < chain->num_chips; i++) {
-		struct BTCG_chip *chip = &chain->chips[i];
+	for (i = 0; i < bd->num_chips; i++) {
+		struct BTCG_chip *chip = &bd->chips[i];
         applog(LOG_DEBUG, "flushing chip %d, work: 0x%p", i, chip->work);
         CHIP_NEW_WORK( cgpu, chip, NULL);
     }
 	/* flush queued work */
 	applog(LOG_DEBUG, "flushing queued work...");
-	while (chain->active_wq.num_elems > 0) {
-		struct work *work = wq_dequeue(&chain->active_wq);
+	while (bd->active_wq.num_elems > 0) {
+		struct work *work = wq_dequeue(&bd->active_wq);
 		assert(work != NULL);
 		work_completed(cgpu, work);
 	}
-	mutex_unlock(&chain->lock);
+	mutex_unlock(&bd->lock);
 }
 
 static void BTCG_get_statline_before(char *buf, size_t len, struct cgpu_info *cgpu)
 {
-	struct BTCG_chain *chain = cgpu->device_data;
-	tailsprintf(buf, len, "%2d ", chain->num_chips);
+	struct BTCG_board *bd = cgpu->device_data;
+	tailsprintf(buf, len, "%2d ", bd->num_chips);
 }
 
 struct device_drv bitmineA1_drv = {
