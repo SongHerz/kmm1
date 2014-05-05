@@ -485,10 +485,11 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
                 FIX_CHIP_ERR_AND_RETURN;
             }
         }
+
         /* FIXME: For performance, I think I should write
          * 'if (STATUS_W_ALLOW...)' but not 'else if (STATUS_W_ALLOW...)'
          */
-        else if (STATUS_W_ALLOW(status)) {
+        if (STATUS_W_ALLOW(status)) {
             assert( chip->work);
 #if 0
             applog(LOG_ERR, "CHIP W_ALLOW for chip %u", id);
@@ -498,22 +499,16 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
                         chip->work, id);
                 FIX_CHIP_ERR_AND_RETURN;
             }
-#if 1
-            applog(LOG_ERR, "Just before claim a succ job");
-#endif
             CHIP_NO_ERR( chip);
             CHIP_NEW_WORK( cgpu, chip, NULL);
-#if 1
-            applog(LOG_ERR, "Just after claim a succ job");
-#endif
         }
         else if ( CHIP_IS_WORK_TIMEOUT( chip)) {
             // check w_allow timeout
             applog(LOG_ERR, "Failed: work time out for chip %u", id);
             FIX_CHIP_ERR_AND_RETURN;
         }
-        /* FIXME: I think no else is needed here */
-        else if (STATUS_BUSY( status)) {
+        else {
+            assert( STATUS_R_READY( status) || STATUS_BUSY( status));
             return;
         }
     }
