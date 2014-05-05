@@ -1,7 +1,7 @@
 /*
- * cgminer SPI driver for Bitmine.ch A1 devices
+ * cgminer driver for BitCoin Garden.
  *
- * Copyright 2013, 2014 Zefir Kurtisi <zefir.kurtisi@gmail.com>
+ * Copyright 2014 Yichao Ma, Hongzhi Song
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -107,7 +107,7 @@ struct BTCG_config g_config = {
 };
 
 /********** chip and chain context structures */
-struct A1_chip {
+struct BTCG_chip {
     unsigned int id;
     
     /********************************/
@@ -130,9 +130,9 @@ struct A1_chip {
     float ave_hw_errs;
 };
 
-/********************************************/
-/* MACROS that operate on A1_chip structure */
-/********************************************/
+/**********************************************/
+/* MACROS that operate on BTCG_chip structure */
+/**********************************************/
 #define __CHIP_INC_AVE(val)     do {    \
     val = 0.5 + (val) / 2.0;            \
 } while(0)
@@ -177,7 +177,7 @@ static void __future_time(unsigned ms, struct timeval *tv) {
     timeradd( &curtime, &incremental, tv);
 }
 
-static void CHIP_NEW_WORK(struct cgpu_info *cgpu, struct A1_chip *chip, struct work *newwork) {
+static void CHIP_NEW_WORK(struct cgpu_info *cgpu, struct BTCG_chip *chip, struct work *newwork) {
     if (chip->work) {
         work_completed( cgpu, chip->work);
     }
@@ -191,7 +191,7 @@ static void CHIP_NEW_WORK(struct cgpu_info *cgpu, struct A1_chip *chip, struct w
     chip->this_work_nonces = 0;
 }
 
-static inline bool CHIP_IS_WORK_TIMEOUT( const struct A1_chip *chip) {
+static inline bool CHIP_IS_WORK_TIMEOUT( const struct BTCG_chip *chip) {
     assert( chip->work != NULL);
     struct timeval curtime;
     cgtime( &curtime);
@@ -199,7 +199,7 @@ static inline bool CHIP_IS_WORK_TIMEOUT( const struct A1_chip *chip) {
 }
 
 /* Show various info of a chip to LOG_ERR */
-static void CHIP_SHOW( const struct A1_chip *chip) {
+static void CHIP_SHOW( const struct BTCG_chip *chip) {
     applog(LOG_ERR, "********** chip %u **********", chip->id);
     applog(LOG_ERR, "work: %p", chip->work);
     applog(LOG_ERR, "this work nonces: %u", chip->this_work_nonces);
@@ -211,11 +211,11 @@ static void CHIP_SHOW( const struct A1_chip *chip) {
 }
 
 
-struct A1_chain {
+struct BTCG_chain {
 	struct cgpu_info *cgpu;
 	int num_chips;
 	struct spi_ctx *spi_ctx;
-	struct A1_chip *chips;
+	struct BTCG_chip *chips;
 	pthread_mutex_t lock;
 
 	struct work_queue active_wq;
@@ -286,7 +286,7 @@ uint32_t get_diff(double diff)
 /*
  * id: chip id
  */
-static bool init_a_chip( struct A1_chip *chip, struct spi_ctx *ctx, unsigned int id) {
+static bool init_a_chip( struct BTCG_chip *chip, struct spi_ctx *ctx, unsigned int id) {
     if ( !chip_reset( ctx, g_config.core_clk_mhz)) {
         applog(LOG_ERR, "Failed to reset chip %u", id);
         return false;
@@ -296,9 +296,9 @@ static bool init_a_chip( struct A1_chip *chip, struct spi_ctx *ctx, unsigned int
     return true;
 }
 
-static struct A1_chain *init_A1_chain( struct cgpu_info *cgpu, struct spi_ctx *ctx)
+static struct BTCG_chain *init_BTCG_chain( struct cgpu_info *cgpu, struct spi_ctx *ctx)
 {
-	struct A1_chain *a1 = malloc(sizeof(*a1));
+	struct BTCG_chain *a1 = malloc(sizeof(*a1));
 	assert(a1 != NULL);
 
 	applog(LOG_DEBUG, "A1 init chain");
@@ -313,7 +313,7 @@ static struct A1_chain *init_A1_chain( struct cgpu_info *cgpu, struct spi_ctx *c
 	       a1->spi_ctx->config.bus, a1->spi_ctx->config.cs_line,
 	       a1->num_chips);
 
-	a1->chips = calloc(a1->num_chips, sizeof(struct A1_chip));
+	a1->chips = calloc(a1->num_chips, sizeof(struct BTCG_chip));
 	assert (a1->chips != NULL);
 
 	applog(LOG_WARNING, "found %d chips", a1->num_chips);
@@ -366,7 +366,7 @@ static bool submit_a_nonce(struct thr_info *thr, struct work *work,
 /*
  * Read valid nonces from a chip.
  */
-static bool submit_ready_nonces( struct thr_info *thr, struct A1_chip *chip, const uint8_t status) {
+static bool submit_ready_nonces( struct thr_info *thr, struct BTCG_chip *chip, const uint8_t status) {
 #if 0
     // int start = get_current_ms();
     applog( LOG_ERR, "thr = %p", thr);
@@ -411,7 +411,7 @@ static bool submit_ready_nonces( struct thr_info *thr, struct A1_chip *chip, con
 #endif
 
     // Get ready groups
-    struct A1_chain *chain = thr->cgpu->device_data;
+    struct BTCG_chain *chain = thr->cgpu->device_data;
     struct spi_ctx *ctx = chain->spi_ctx;
 
     bool all_submit_succ = true;
@@ -444,7 +444,7 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
     applog( LOG_ERR, "%s for chip %u", __func__, id);
 #endif
     struct cgpu_info *cgpu = thr->cgpu;
-    struct A1_chain *chain = cgpu->device_data;
+    struct BTCG_chain *chain = cgpu->device_data;
 
     assert( id < chain->num_chips);
 
@@ -454,7 +454,7 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
     }
 
     struct spi_ctx *ctx = chain->spi_ctx;
-    struct A1_chip *chip = chain->chips + id;
+    struct BTCG_chip *chip = chain->chips + id;
     assert( chip);
 
 
@@ -583,7 +583,7 @@ void A1_detect(bool hotplug)
     struct cgpu_info *cgpu = malloc(sizeof(*cgpu));
     assert(cgpu != NULL);
 
-    struct A1_chain *a1 = init_A1_chain(cgpu, ctx);
+    struct BTCG_chain *a1 = init_BTCG_chain(cgpu, ctx);
     if (a1 == NULL)
         return;
 
@@ -602,7 +602,7 @@ void A1_detect(bool hotplug)
 
 static int64_t A1_scanwork(struct thr_info *thr)
 {
-	struct A1_chain *chain = thr->cgpu->device_data;
+	struct BTCG_chain *chain = thr->cgpu->device_data;
 
 	applog(LOG_DEBUG, "A1 running scanwork");
 	mutex_lock(&chain->lock);
@@ -630,7 +630,7 @@ static int64_t A1_scanwork(struct thr_info *thr)
 /* queue two work items per chip in chain */
 static bool A1_queue_full(struct cgpu_info *cgpu)
 {
-	struct A1_chain *a1 = cgpu->device_data;
+	struct BTCG_chain *a1 = cgpu->device_data;
 	int queue_full = false;
 	struct work *work;
 
@@ -652,7 +652,7 @@ static bool A1_queue_full(struct cgpu_info *cgpu)
 
 static void A1_flush_work(struct cgpu_info *cgpu)
 {
-	struct A1_chain *a1 = cgpu->device_data;
+	struct BTCG_chain *a1 = cgpu->device_data;
 
 	applog(LOG_DEBUG, "A1 running flushwork");
 
@@ -667,7 +667,7 @@ static void A1_flush_work(struct cgpu_info *cgpu)
     }
 	/* flush the work chips were currently hashing */
 	for (i = 0; i < a1->num_chips; i++) {
-		struct A1_chip *chip = &a1->chips[i];
+		struct BTCG_chip *chip = &a1->chips[i];
         applog(LOG_DEBUG, "flushing chip %d, work: 0x%p", i, chip->work);
         CHIP_NEW_WORK( cgpu, chip, NULL);
     }
@@ -683,7 +683,7 @@ static void A1_flush_work(struct cgpu_info *cgpu)
 
 static void A1_get_statline_before(char *buf, size_t len, struct cgpu_info *cgpu)
 {
-	struct A1_chain *a1 = cgpu->device_data;
+	struct BTCG_chain *a1 = cgpu->device_data;
 	tailsprintf(buf, len, "%2d ", a1->num_chips);
 }
 
