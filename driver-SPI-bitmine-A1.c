@@ -81,6 +81,31 @@ static struct work *wq_dequeue(struct work_queue *wq)
 }
 
 
+/********** global driver configuration */
+struct BTCG_config {
+    unsigned int spi_clk_khz;
+
+    unsigned int core_clk_mhz;
+
+    unsigned int work_timeout_ms;
+    unsigned int consecutive_err_threshold;
+};
+
+struct BTCG_config g_config = {
+    .spi_clk_khz = 200,
+
+    .core_clk_mhz = 200,
+
+    // The min freq of the chip is 200MHz.
+    // With 32 cores each chip, the min hash rate is 6.4G/s.
+    // The full search space is 4G, so the max time is about
+    // 4G/(6.4G/s) = (4/6.4)s, which is less than 1s.
+    // Now, set the time out to 10s, the safe margin is large
+    // enough, and no too much failure messages.
+    .work_timeout_ms = 10 * 1000,
+    .consecutive_err_threshold = 7
+};
+
 /********** chip and chain context structures */
 struct A1_chip {
     unsigned int id;
@@ -158,13 +183,7 @@ static void CHIP_NEW_WORK(struct cgpu_info *cgpu, struct A1_chip *chip, struct w
     }
     chip->work = newwork;
     if (newwork) {
-        // The min freq of the chip is 200MHz.
-        // With 32 cores each chip, the min hash rate is 6.4G/s.
-        // The full search space is 4G, so the max time is about
-        // 4G/(6.4G/s) = (4/6.4)s, which is less than 1s.
-        // Now, set the time out to 10s, the safe margin is large
-        // enough, and no too much failure messages.
-        __future_time( 10 * 1000, &chip->this_work_deadline);
+        __future_time( g_config.work_timeout_ms, &chip->this_work_deadline);
     }
     else {
         timerclear( &chip->this_work_deadline);
@@ -268,7 +287,7 @@ uint32_t get_diff(double diff)
  * id: chip id
  */
 static bool init_a_chip( struct A1_chip *chip, struct spi_ctx *ctx, unsigned int id) {
-    if ( !chip_reset( ctx)) {
+    if ( !chip_reset( ctx, g_config.core_clk_mhz)) {
         applog(LOG_ERR, "Failed to reset chip %u", id);
         return false;
     }
@@ -439,10 +458,10 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
     assert( chip);
 
 
-#define __RESET_AND_GIVE_BACK_WORK()  do {      \
-    (void)chip_reset( ctx);                     \
-    applog(LOG_ERR, "Reset chip %u", chip->id); \
-    CHIP_NEW_WORK( cgpu, chip, NULL);           \
+#define __RESET_AND_GIVE_BACK_WORK()  do {          \
+    (void)chip_reset( ctx, g_config.core_clk_mhz);  \
+    applog(LOG_ERR, "Reset chip %u", chip->id);     \
+    CHIP_NEW_WORK( cgpu, chip, NULL);               \
 } while(0)
 
 #define FIX_CHIP_ERR_AND_RETURN do {    \
@@ -552,7 +571,7 @@ void A1_detect(bool hotplug)
     /* TODO: Use options to control spi clk */
     struct spi_config cfg = default_spi_config;
     cfg.mode = SPI_MODE_0;
-    cfg.speed = 200 * 1000;
+    cfg.speed = g_config.spi_clk_khz * 1000;
     cfg.delay = 30;         // TODO: may use default value
 
     struct spi_ctx *ctx = spi_init(&cfg);
@@ -642,7 +661,7 @@ static void A1_flush_work(struct cgpu_info *cgpu)
 	mutex_lock(&a1->lock);
 	/* Reset all chips first */
     for( i = 0; i < a1->num_chips; ++i) {
-        if ( !chip_select( i) || !chip_reset( a1->spi_ctx)) {
+        if ( !chip_select( i) || !chip_reset( a1->spi_ctx, g_config.core_clk_mhz)) {
             applog(LOG_ERR, "Failed to abort work for chip %zu", i);
         }
     }

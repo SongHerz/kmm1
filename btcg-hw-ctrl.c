@@ -34,13 +34,13 @@
 #define CLK_CORE_MIN    200
 #define PLL_CONF_MAX    0x7F    // 2'b0111_1111
 
-static uint8_t pll_conf( int clk_core) {
+static uint8_t pll_conf( unsigned clk_core) {
     // CLK_CORE = CLK_OSC * (F6:F0 + 1) / 2
     // => F6:F0 = ( CLK_CORE * 2 / CLK_OSC) - 1
     assert( clk_core >= CLK_CORE_MIN && clk_core <= CLK_CORE_MAX);
-    int f6f0 = clk_core * 2 / CLK_OSC - 1;
+    unsigned f6f0 = clk_core * 2 / CLK_OSC - 1;
     assert( f6f0 <= PLL_CONF_MAX);
-    return f6f0;
+    return (uint8_t)f6f0;
 }
 
 static bool __chip_sw_reset(struct spi_ctx *ctx) {
@@ -50,7 +50,7 @@ static bool __chip_sw_reset(struct spi_ctx *ctx) {
     return spi_transfer(ctx, &tx, &dummy, 1);
 }
 
-static bool __chip_set_pll(struct spi_ctx *ctx, int clk_core) {
+static bool __chip_set_pll(struct spi_ctx *ctx, unsigned clk_core) {
     uint8_t tx[2];
     uint8_t dummy[2];
 
@@ -69,8 +69,8 @@ static bool __chip_set_pll(struct spi_ctx *ctx, int clk_core) {
     return true;
 }
 
-bool chip_reset(struct spi_ctx *ctx) {
-    return __chip_sw_reset(ctx) && __chip_set_pll(ctx, 200);
+bool chip_reset(struct spi_ctx *ctx, unsigned clk_core) {
+    return __chip_sw_reset(ctx) && __chip_set_pll(ctx, clk_core);
 }
 
 #define STATUS_W_ALLOW(status)  ((status) & 0x1)
