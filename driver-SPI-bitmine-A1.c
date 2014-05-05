@@ -30,11 +30,6 @@
 ///////////////////////////////////////////////////////////////////////////
 
 
-#define MAX_KM_IC	14
- 
-///////////////////////////////////////////////////////////////////////////
-
-
 /********** work queue */
 struct work_ent {
 	struct work *work;
@@ -83,6 +78,8 @@ static struct work *wq_dequeue(struct work_queue *wq)
 
 /********** global driver configuration */
 struct BTCG_config {
+    unsigned num_chips;
+
     unsigned int spi_clk_khz;
 
     unsigned int core_clk_mhz;
@@ -92,6 +89,8 @@ struct BTCG_config {
 };
 
 struct BTCG_config g_config = {
+    .num_chips = 14,
+
     .spi_clk_khz = 200,
 
     .core_clk_mhz = 200,
@@ -304,7 +303,7 @@ static struct BTCG_chain *init_BTCG_chain( struct cgpu_info *cgpu, struct spi_ct
 	applog(LOG_DEBUG, "A1 init chain");
 	memset(a1, 0, sizeof(*a1));
     a1->cgpu = cgpu;
-	a1->num_chips = MAX_KM_IC;
+	a1->num_chips = g_config.num_chips;
 	if (a1->num_chips == 0)
 		goto failure;
 	a1->spi_ctx = ctx;
@@ -556,7 +555,7 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
 
 
 /* Probe SPI channel and register chip chain */
-void A1_detect(bool hotplug)
+void BTCG_detect(bool hotplug)
 {
 	/* no hotplug support for now */
 	if (hotplug)
@@ -568,7 +567,6 @@ void A1_detect(bool hotplug)
     }
 	
     /* SPI configuration */
-    /* TODO: Use options to control spi clk */
     struct spi_config cfg = default_spi_config;
     cfg.mode = SPI_MODE_0;
     cfg.speed = g_config.spi_clk_khz * 1000;
@@ -600,7 +598,7 @@ void A1_detect(bool hotplug)
 
 
 
-static int64_t A1_scanwork(struct thr_info *thr)
+static int64_t BTCG_scanwork(struct thr_info *thr)
 {
 	struct BTCG_chain *chain = thr->cgpu->device_data;
 
@@ -628,7 +626,7 @@ static int64_t A1_scanwork(struct thr_info *thr)
 
 
 /* queue two work items per chip in chain */
-static bool A1_queue_full(struct cgpu_info *cgpu)
+static bool BTCG_queue_full(struct cgpu_info *cgpu)
 {
 	struct BTCG_chain *a1 = cgpu->device_data;
 	int queue_full = false;
@@ -650,7 +648,7 @@ static bool A1_queue_full(struct cgpu_info *cgpu)
 	return queue_full;
 }
 
-static void A1_flush_work(struct cgpu_info *cgpu)
+static void BTCG_flush_work(struct cgpu_info *cgpu)
 {
 	struct BTCG_chain *a1 = cgpu->device_data;
 
@@ -681,7 +679,7 @@ static void A1_flush_work(struct cgpu_info *cgpu)
 	mutex_unlock(&a1->lock);
 }
 
-static void A1_get_statline_before(char *buf, size_t len, struct cgpu_info *cgpu)
+static void BTCG_get_statline_before(char *buf, size_t len, struct cgpu_info *cgpu)
 {
 	struct BTCG_chain *a1 = cgpu->device_data;
 	tailsprintf(buf, len, "%2d ", a1->num_chips);
@@ -691,11 +689,11 @@ struct device_drv bitmineA1_drv = {
 	.drv_id = DRIVER_bitmineA1,
 	.dname = "BitmineA1",
 	.name = "BA1",
-	.drv_detect = A1_detect,
+	.drv_detect = BTCG_detect,
 
 	.hash_work = hash_queued_work,
-	.scanwork = A1_scanwork,
-	.queue_full = A1_queue_full,
-	.flush_work = A1_flush_work,
-	.get_statline_before = A1_get_statline_before,
+	.scanwork = BTCG_scanwork,
+	.queue_full = BTCG_queue_full,
+	.flush_work = BTCG_flush_work,
+	.get_statline_before = BTCG_get_statline_before,
 };
