@@ -265,7 +265,7 @@ static void CHIP_SHOW( const struct BTCG_chip *chip, bool show_work_info) {
  */
 static bool init_a_chip( struct BTCG_chip *chip, struct spi_ctx *ctx, unsigned int id) {
     if ( !chip_reset( ctx, g_config.core_clk_mhz)) {
-        applog(LOG_ERR, "Failed to reset chip %u", id);
+        applog(LOG_ERR, "Chip %u: failed to reset", id);
         return false;
     }
     memset(chip, 0, sizeof(*chip));
@@ -445,21 +445,9 @@ static bool submit_ready_nonces( struct thr_info *thr, struct BTCG_chip *chip, c
     }
 
     if ( num_grps == 0) {
-        applog(LOG_ERR, "R_READY is high, but no group ready for chip %u", chip->id);
+        applog(LOG_ERR, "Chip %u: R_READY is high, but no group ready", chip->id);
         return false;
     }
-#if 1
-    {
-        size_t j;
-        applog(LOG_ERR, "================================ for chip %u", chip->id);
-        char s[1024];
-        int n = snprintf( s, sizeof(s), "grps = ");
-        for ( j = 0; j < num_grps; ++j) {
-            n += snprintf( s + n, sizeof(s) - n, "%u, ", grps[j]);
-        }
-        applog(LOG_ERR, "%sfor chip %u", s, chip->id);
-    } 
-#endif
 
     // Get ready groups
     struct BTCG_board *bd = thr->cgpu->device_data;
@@ -470,21 +458,21 @@ static bool submit_ready_nonces( struct thr_info *thr, struct BTCG_chip *chip, c
     for ( i = 0; i < num_grps; ++i) {
         uint32_t nonce;
         if (!chip_read_nonce( ctx, grps[i], &nonce)) {
-            applog(LOG_ERR, "Failed to get nonce from chip %u", chip->id);
+            applog(LOG_ERR, "Chip %u: failed to get nonce", chip->id);
             return false;
         }
 
         // submit nonce
         uint32_t actual_nonce;
         if (!submit_a_nonce( thr, chip->work, nonce, &actual_nonce)) {
-            applog(LOG_ERR, "Failed to submit nonce %u, work %p, for chip %u",
-                    nonce, chip->work, chip->id);
+            applog(LOG_ERR, "Chip %u: failed to submit nonce %u from nonce group %d",
+                     chip->id, nonce, grps[i]);
             all_submit_succ = false;
         }
         else {
             CHIP_INC_NONCE(chip);
-            applog(LOG_ERR, "submit nonce ok, nonce %u, actual nonce %u, work %p, for chip %u",
-                    nonce, actual_nonce, chip->work, chip->id);
+            applog(LOG_DEBUG, "Chip %u: submit nonce ok, nonce %u, actual nonce %u",
+                    chip->id, nonce, actual_nonce);
         }
     }
     return all_submit_succ;
@@ -497,7 +485,7 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
     assert( id < bd->num_chips);
 
     if ( !chip_select(id)) {
-        applog(LOG_ERR, "Failed to select chip %u", id);
+        applog(LOG_ERR, "Chip %u: failed to select chip", id);
         return;
     }
 
@@ -510,7 +498,7 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
 
 #define __RESET_AND_GIVE_BACK_WORK()  do {          \
     (void)chip_reset( ctx, g_config.core_clk_mhz);  \
-    applog(LOG_ERR, "Reset chip %u", chip->id);     \
+    applog(LOG_DEBUG, "Chip %u: reset", chip->id);  \
     CHIP_NEW_WORK( cgpu, chip, NULL);               \
 } while(0)
 
@@ -519,12 +507,12 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
     if (chip->consec_errs > g_config.consecutive_err_threshold) {   \
         chip->state = CHIP_STATE_GOING_TO_HIBERNATE;                \
         applog(LOG_ERR,                                             \
-                "Fail: %u consecutive errors, "                     \
-                "which larger than threshold %u, "                  \
-                "and chip %u is going to hibernate.",               \
+                "Chip %u: %u consecutive errors, "                  \
+                "which is larger than threshold %u. "               \
+                "Going to hibernate.",                              \
+                chip->id,                                           \
                 chip->consec_errs,                                  \
-                g_config.consecutive_err_threshold,                 \
-                chip->id);                                          \
+                g_config.consecutive_err_threshold);                \
     }                                                               \
     __RESET_AND_GIVE_BACK_WORK();                                   \
     return;                                                         \
@@ -533,7 +521,7 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
             if ( chip->work) {
                 uint8_t status;
                 if ( !chip_status( ctx, &status)) {
-                    applog(LOG_ERR, "Failed to get status for chip %u", id);
+                    applog(LOG_ERR, "Chip %u: failed to get status", id);
                     FIX_CHIP_ERR_MAY_GOING_HIBERNATE_AND_RETURN;
                 }
 
@@ -546,11 +534,11 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
 
                     /* DO always clean chip status */
                     if ( !chip_clean( ctx)) {
-                        applog(LOG_ERR, "Failed to clean status from chip %u", id);
+                        applog(LOG_ERR, "Chip %u: failed to clean status", id);
                         FIX_CHIP_ERR_MAY_GOING_HIBERNATE_AND_RETURN;
                     }
                     if ( !submit_succ) {
-                        applog(LOG_ERR, "Failed to submit nonce for chip %u", id);
+                        applog(LOG_ERR, "Chip %u: failed to submit nonce", id);
                         FIX_CHIP_ERR_MAY_GOING_HIBERNATE_AND_RETURN;
                     }
                 }
@@ -558,8 +546,8 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
                 if (STATUS_W_ALLOW(status)) {
                     assert( chip->work);
                     if (chip->this_work_nonces == 0) {
-                        applog(LOG_ERR, "Failed: no nonce calculated for work %p for chip %u",
-                                chip->work, id);
+                        applog(LOG_ERR, "Chip %u: no nonce calculated for work %p",
+                                id, chip->work);
                         FIX_CHIP_ERR_MAY_GOING_HIBERNATE_AND_RETURN;
                     }
                     CHIP_WORK_DONE_WITHOUT_ERR( chip);
@@ -567,7 +555,7 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
                 }
                 else if ( CHIP_IS_WORK_TIMEOUT( chip)) {
                     // check w_allow timeout
-                    applog(LOG_ERR, "Failed: work time out for chip %u", id);
+                    applog(LOG_ERR, "Chip %u: work time out", id);
                     FIX_CHIP_ERR_MAY_GOING_HIBERNATE_AND_RETURN;
                 }
                 else {
@@ -583,12 +571,10 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
                     return;
                 }
                 CHIP_NEW_WORK( cgpu, chip, new_work);
-#if 1
-                applog(LOG_ERR, "new work %p for chip %u", chip->work, id);
-#endif
+                applog(LOG_DEBUG, "Chip %u: new work %p", id, chip->work);
                 if (!chip_write_job( ctx, chip->work->midstate, chip->work->data + 64)) {
                     // give back job
-                    applog( LOG_ERR, "Failed to write job to chip %u", id);
+                    applog( LOG_ERR, "Chip %u: failed to write job", id);
                     FIX_CHIP_ERR_MAY_GOING_HIBERNATE_AND_RETURN;
                 }
             }
@@ -604,7 +590,7 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
             assert( chip->state == CHIP_STATE_HIBERNATE);
             assert( chip->work == NULL);
             if ( CHIP_IS_TIME_TO_WAKE_UP( chip)) {
-                applog(LOG_WARNING, "Chip %u wakes up", chip->id);
+                applog(LOG_WARNING, "Chip %u: wake up", chip->id);
                 chip->state = CHIP_STATE_RUN;
             }
             break;
@@ -714,13 +700,13 @@ static void BTCG_flush_work(struct cgpu_info *cgpu)
 
 	applog(LOG_DEBUG, "BTCG running flushwork");
 
-	size_t i;
+	int i;
 
 	mutex_lock(&bd->lock);
 	/* Reset all chips first */
     for( i = 0; i < bd->num_chips; ++i) {
         if ( !chip_select( i) || !chip_reset( bd->spi_ctx, g_config.core_clk_mhz)) {
-            applog(LOG_ERR, "Failed to abort work for chip %zu", i);
+            applog(LOG_ERR, "Chip %d: failed to abort work", i);
         }
     }
 	/* flush the work chips were currently hashing */
