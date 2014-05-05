@@ -119,6 +119,7 @@ struct BTCG_chip {
     /*********************/
 	/* global statistics */
     /*********************/
+    unsigned int total_works;
 	unsigned int total_nonces;
 
     /* consecutive errors */
@@ -183,6 +184,7 @@ static void CHIP_NEW_WORK(struct cgpu_info *cgpu, struct BTCG_chip *chip, struct
     chip->work = newwork;
     if (newwork) {
         __future_time( g_config.work_timeout_ms, &chip->this_work_deadline);
+        chip->total_works += 1;
     }
     else {
         timerclear( &chip->this_work_deadline);
@@ -205,6 +207,7 @@ static void CHIP_SHOW( const struct BTCG_chip *chip, bool show_work_info) {
         applog(LOG_WARNING, "work: %p", chip->work);
         applog(LOG_WARNING, "this work nonces: %u", chip->this_work_nonces);
     }
+    applog(LOG_WARNING, "total works: %u", chip->total_works);
     applog(LOG_WARNING, "total nonces: %u", chip->total_nonces);
     applog(LOG_WARNING, "consecutive errors: %u", chip->consec_errs);
     applog(LOG_WARNING, "max consecutive errors: %u", chip->max_consec_errs);
