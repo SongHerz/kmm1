@@ -120,6 +120,7 @@ struct BTCG_chip {
 	/* global statistics */
     /*********************/
     unsigned int total_works;
+    unsigned int good_works;
 	unsigned int total_nonces;
 
     /* consecutive errors */
@@ -157,9 +158,11 @@ struct BTCG_chip {
     __CHIP_INC_AVE(chip->ave_hw_errs);  \
 } while(0)
 
-#define CHIP_NO_ERR(chip)   do {    \
-    chip->consec_errs = 0;          \
-    __CHIP_DEC_AVE(chip->ave_hw_errs);  \
+#define CHIP_WORK_DONE_WITHOUT_ERR(chip)    do {    \
+    assert( chip->work != NULL);                    \
+    chip->good_works += 1;                          \
+    chip->consec_errs = 0;                          \
+    __CHIP_DEC_AVE(chip->ave_hw_errs);              \
 } while(0)
 
 /* Operations on work */
@@ -208,6 +211,7 @@ static void CHIP_SHOW( const struct BTCG_chip *chip, bool show_work_info) {
         applog(LOG_WARNING, "this work nonces: %u", chip->this_work_nonces);
     }
     applog(LOG_WARNING, "total works: %u", chip->total_works);
+    applog(LOG_WARNING, "good works: %u", chip->good_works);
     applog(LOG_WARNING, "total nonces: %u", chip->total_nonces);
     applog(LOG_WARNING, "consecutive errors: %u", chip->consec_errs);
     applog(LOG_WARNING, "max consecutive errors: %u", chip->max_consec_errs);
@@ -505,7 +509,7 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
                         chip->work, id);
                 FIX_CHIP_ERR_AND_RETURN;
             }
-            CHIP_NO_ERR( chip);
+            CHIP_WORK_DONE_WITHOUT_ERR( chip);
             CHIP_NEW_WORK( cgpu, chip, NULL);
         }
         else if ( CHIP_IS_WORK_TIMEOUT( chip)) {
