@@ -85,7 +85,16 @@ struct BTCG_config {
     unsigned int core_clk_mhz;
 
     unsigned int work_timeout_ms;
+
+    /* When number of consecutive errors
+     * is larger than this number, the chip
+     * should goes to hibernate state.
+     */
     unsigned int consecutive_err_threshold;
+    /* How many milliseconds should the chip hibernates,
+     * when the chip enters hibernate state.
+     */
+    unsigned int hibernate_time_ms;
 };
 
 struct BTCG_config g_config = {
@@ -102,17 +111,33 @@ struct BTCG_config g_config = {
     // Now, set the time out to 10s, the safe margin is large
     // enough, and no too much failure messages.
     .work_timeout_ms = 10 * 1000,
-    .consecutive_err_threshold = 7
+
+    .consecutive_err_threshold = 7,
+    .hibernate_time_ms = 30 * 1000,
 };
 
 /********** chip and chain context structures */
 struct BTCG_chip {
     unsigned int id;
+
+    /*******/
+    /* FSM */
+    /*******/
+#define CHIP_STATE_RUN                  0
+#define CHIP_STATE_GOING_TO_HIBERNATE   1
+#define CHIP_STATE_HIBERNATE            2
+    int state;
+    /* After this time, the chip goes back to RUN state */
+    struct timeval hibernate_deadline;
+
     
     /********************************/
     /* data relates to current work */
     /********************************/
 	struct work *work;
+    /* After this time, if no nonce calculated by the chip,
+     * the work is considered time out
+     */
     struct timeval this_work_deadline;
     unsigned int this_work_nonces;
 
@@ -129,6 +154,8 @@ struct BTCG_chip {
 
 	uint32_t hw_errs;
     float ave_hw_errs;
+
+    uint64_t total_hibernate_ms;
 };
 
 /**********************************************/
@@ -180,6 +207,18 @@ static void __future_time(unsigned ms, struct timeval *tv) {
     timeradd( &curtime, &incremental, tv);
 }
 
+static inline void CHIP_SET_HIBERNATE_DEADLINE(struct BTCG_chip *chip) {
+    chip->consec_errs = 0;
+    __future_time( g_config.hibernate_time_ms, &chip->hibernate_deadline);
+    chip->total_hibernate_ms += g_config.hibernate_time_ms;
+}
+
+static bool CHIP_IS_TIME_TO_WAKE_UP(struct BTCG_chip *chip) {
+    struct timeval curtime;
+    cgtime( &curtime);
+    return timercmp( &chip->hibernate_deadline, &curtime, <);
+}
+
 static void CHIP_NEW_WORK(struct cgpu_info *cgpu, struct BTCG_chip *chip, struct work *newwork) {
     if (chip->work) {
         work_completed( cgpu, chip->work);
@@ -217,6 +256,22 @@ static void CHIP_SHOW( const struct BTCG_chip *chip, bool show_work_info) {
     applog(LOG_WARNING, "max consecutive errors: %u", chip->max_consec_errs);
     applog(LOG_WARNING, "hardware errors: %u", chip->hw_errs);
     applog(LOG_WARNING, "average hardware errors: %f", chip->ave_hw_errs);
+    applog(LOG_WARNING, "total hibernate time: %llus", chip->total_hibernate_ms / 1000);
+}
+
+
+/*
+ * id: chip id
+ */
+static bool init_a_chip( struct BTCG_chip *chip, struct spi_ctx *ctx, unsigned int id) {
+    if ( !chip_reset( ctx, g_config.core_clk_mhz)) {
+        applog(LOG_ERR, "Failed to reset chip %u", id);
+        return false;
+    }
+    memset(chip, 0, sizeof(*chip));
+    chip->id = id;
+    chip->state = CHIP_STATE_RUN;
+    return true;
 }
 
 
@@ -291,19 +346,6 @@ uint32_t get_diff(double diff)
 
 
 /********** driver interface */
-
-/*
- * id: chip id
- */
-static bool init_a_chip( struct BTCG_chip *chip, struct spi_ctx *ctx, unsigned int id) {
-    if ( !chip_reset( ctx, g_config.core_clk_mhz)) {
-        applog(LOG_ERR, "Failed to reset chip %u", id);
-        return false;
-    }
-    memset(chip, 0, sizeof(*chip));
-    chip->id = id;
-    return true;
-}
 
 static struct BTCG_board *init_BTCG_board( struct cgpu_info *cgpu, struct spi_ctx *ctx)
 {
@@ -463,6 +505,8 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
     struct BTCG_chip *chip = bd->chips + id;
     assert( chip);
 
+    switch( chip->state) {
+        case CHIP_STATE_RUN:
 
 #define __RESET_AND_GIVE_BACK_WORK()  do {          \
     (void)chip_reset( ctx, g_config.core_clk_mhz);  \
@@ -470,75 +514,102 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
     CHIP_NEW_WORK( cgpu, chip, NULL);               \
 } while(0)
 
-#define FIX_CHIP_ERR_AND_RETURN do {    \
-    CHIP_INC_ERR(chip);                 \
-    __RESET_AND_GIVE_BACK_WORK();       \
-    return;                             \
+#define FIX_CHIP_ERR_MAY_GOING_HIBERNATE_AND_RETURN do {            \
+    CHIP_INC_ERR(chip);                                             \
+    if (chip->consec_errs > g_config.consecutive_err_threshold) {   \
+        chip->state = CHIP_STATE_GOING_TO_HIBERNATE;                \
+        applog(LOG_ERR,                                             \
+                "Fail: %u consecutive errors, "                     \
+                "which larger than threshold %u, "                  \
+                "and chip %u is going to hibernate.",               \
+                chip->consec_errs,                                  \
+                g_config.consecutive_err_threshold,                 \
+                chip->id);                                          \
+    }                                                               \
+    __RESET_AND_GIVE_BACK_WORK();                                   \
+    return;                                                         \
 } while(0)
 
+            if ( chip->work) {
+                uint8_t status;
+                if ( !chip_status( ctx, &status)) {
+                    applog(LOG_ERR, "Failed to get status for chip %u", id);
+                    FIX_CHIP_ERR_MAY_GOING_HIBERNATE_AND_RETURN;
+                }
 
-    if ( chip->work) {
-        uint8_t status;
-        if ( !chip_status( ctx, &status)) {
-            applog(LOG_ERR, "Failed to get status for chip %u", id);
-            FIX_CHIP_ERR_AND_RETURN;
-        }
+                /* The chip status check order is important.
+                 * Do NOT change the order without strong reason.
+                 */
+                if (STATUS_R_READY( status)) {
+                    // READ nonces
+                    const bool submit_succ =  submit_ready_nonces( thr, chip, status);
 
-        /* The chip status check order is important.
-         * Do NOT change the order without strong reason.
-         */
-        if (STATUS_R_READY( status)) {
-            // READ nonces
-            const bool submit_succ =  submit_ready_nonces( thr, chip, status);
+                    /* DO always clean chip status */
+                    if ( !chip_clean( ctx)) {
+                        applog(LOG_ERR, "Failed to clean status from chip %u", id);
+                        FIX_CHIP_ERR_MAY_GOING_HIBERNATE_AND_RETURN;
+                    }
+                    if ( !submit_succ) {
+                        applog(LOG_ERR, "Failed to submit nonce for chip %u", id);
+                        FIX_CHIP_ERR_MAY_GOING_HIBERNATE_AND_RETURN;
+                    }
+                }
 
-            /* DO always clean chip status */
-            if ( !chip_clean( ctx)) {
-                applog(LOG_ERR, "Failed to clean status from chip %u", id);
-                FIX_CHIP_ERR_AND_RETURN;
+                if (STATUS_W_ALLOW(status)) {
+                    assert( chip->work);
+                    if (chip->this_work_nonces == 0) {
+                        applog(LOG_ERR, "Failed: no nonce calculated for work %p for chip %u",
+                                chip->work, id);
+                        FIX_CHIP_ERR_MAY_GOING_HIBERNATE_AND_RETURN;
+                    }
+                    CHIP_WORK_DONE_WITHOUT_ERR( chip);
+                    CHIP_NEW_WORK( cgpu, chip, NULL);
+                }
+                else if ( CHIP_IS_WORK_TIMEOUT( chip)) {
+                    // check w_allow timeout
+                    applog(LOG_ERR, "Failed: work time out for chip %u", id);
+                    FIX_CHIP_ERR_MAY_GOING_HIBERNATE_AND_RETURN;
+                }
+                else {
+                    assert( STATUS_R_READY( status) || STATUS_BUSY( status));
+                    return;
+                }
             }
-            if ( !submit_succ) {
-                applog(LOG_ERR, "Failed to submit nonce for chip %u", id);
-                FIX_CHIP_ERR_AND_RETURN;
-            }
-        }
 
-        if (STATUS_W_ALLOW(status)) {
-            assert( chip->work);
-            if (chip->this_work_nonces == 0) {
-                applog(LOG_ERR, "Failed: no nonce calculated for work %p for chip %u",
-                        chip->work, id);
-                FIX_CHIP_ERR_AND_RETURN;
-            }
-            CHIP_WORK_DONE_WITHOUT_ERR( chip);
-            CHIP_NEW_WORK( cgpu, chip, NULL);
-        }
-        else if ( CHIP_IS_WORK_TIMEOUT( chip)) {
-            // check w_allow timeout
-            applog(LOG_ERR, "Failed: work time out for chip %u", id);
-            FIX_CHIP_ERR_AND_RETURN;
-        }
-        else {
-            assert( STATUS_R_READY( status) || STATUS_BUSY( status));
-            return;
-        }
-    }
-
-    if ( chip->work == NULL) {
-        struct work *new_work = wq_dequeue(&bd->active_wq);
-        if (new_work == NULL) {
-            applog(LOG_ERR, "queue under flow");
-            return;
-        }
-        CHIP_NEW_WORK( cgpu, chip, new_work);
+            if ( chip->work == NULL) {
+                struct work *new_work = wq_dequeue(&bd->active_wq);
+                if (new_work == NULL) {
+                    applog(LOG_ERR, "queue under flow");
+                    return;
+                }
+                CHIP_NEW_WORK( cgpu, chip, new_work);
 #if 1
-        applog(LOG_ERR, "new work %p for chip %u", chip->work, id);
+                applog(LOG_ERR, "new work %p for chip %u", chip->work, id);
 #endif
-        if (!chip_write_job( ctx, chip->work->midstate, chip->work->data + 64)) {
-            // give back job
-            applog( LOG_ERR, "Failed to write job to chip %u", id);
-            FIX_CHIP_ERR_AND_RETURN;
-        }
-    }
+                if (!chip_write_job( ctx, chip->work->midstate, chip->work->data + 64)) {
+                    // give back job
+                    applog( LOG_ERR, "Failed to write job to chip %u", id);
+                    FIX_CHIP_ERR_MAY_GOING_HIBERNATE_AND_RETURN;
+                }
+            }
+            break;
+
+        case CHIP_STATE_GOING_TO_HIBERNATE:
+            assert( chip->work == NULL);
+            CHIP_SET_HIBERNATE_DEADLINE( chip);
+            chip->state = CHIP_STATE_HIBERNATE;
+            break;
+
+        default:
+            assert( chip->state == CHIP_STATE_HIBERNATE);
+            assert( chip->work == NULL);
+            if ( CHIP_IS_TIME_TO_WAKE_UP( chip)) {
+                applog(LOG_WARNING, "Chip %u wakes up", chip->id);
+                chip->state = CHIP_STATE_RUN;
+            }
+            break;
+    }   // End of switch( chip->state)
+
     return;
 }
 
@@ -600,7 +671,7 @@ static int64_t BTCG_scanwork(struct thr_info *thr)
 	for (k = 0; k < 10; k++) {
         int id;
         for(id = 0;id < bd->num_chips; id++){
-            if (id != 0 && id != 1 && id != 6 && id != 7 && id != 12 && id != 13) {
+            if (id != 0 && id != 1 && id != 2 && id != 6 && id != 7 && id != 12 && id != 13) {
                 continue;
             }
             may_submit_may_get_work(thr, id);
