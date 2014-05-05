@@ -101,6 +101,7 @@ struct A1_chip {
     /********************************/
 	struct work *work;
     struct timeval this_work_deadline;
+    uint32_t this_work_nonces;
 
     /*********************/
 	/* global statistics */
@@ -132,6 +133,7 @@ struct A1_chip {
 
 /* Operations on nonces_found */
 #define CHIP_INC_NONCE(chip)    do {    \
+    chip->this_work_nonces += 1;        \
     chip->total_nonces += 1;            \
 } while(0)
 
@@ -172,13 +174,14 @@ static void CHIP_NEW_WORK(struct cgpu_info *cgpu, struct A1_chip *chip, struct w
         // With 32 cores each chip, the min hash rate is 6.4G/s.
         // The full search space is 4G, so the max time is about
         // 4G/(6.4G/s) = (4/6.4)s, which is less than 1s.
-        // Now, set the time out to 2s, and the safe margin is large
-        // enough.
-        __future_time( 2 * 1000, &chip->this_work_deadline);
+        // Now, set the time out to 10s, the safe margin is large
+        // enough, and no too much failure messages.
+        __future_time( 10 * 1000, &chip->this_work_deadline);
     }
     else {
         timerclear( &chip->this_work_deadline);
     }
+    chip->this_work_nonces = 0;
 }
 
 static inline bool CHIP_IS_WORK_TIMEOUT( const struct A1_chip *chip) {
@@ -548,12 +551,17 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
 #if 0
             applog(LOG_ERR, "CHIP W_ALLOW for chip %u", id);
 #endif
+            if (chip->this_work_nonces == 0) {
+                applog(LOG_ERR, "Failed: no nonce calculated for work %p for chip %u",
+                        chip->work, id);
+                FIX_CHIP_ERR_AND_RETURN;
+            }
             CHIP_NO_ERR( chip);
             CHIP_NEW_WORK( cgpu, chip, NULL);
         }
         else if ( CHIP_IS_WORK_TIMEOUT( chip)) {
             // check w_allow timeout
-            applog(LOG_ERR, "Work time out for chip %u", id);
+            applog(LOG_ERR, "Failed: work time out for chip %u", id);
             FIX_CHIP_ERR_AND_RETURN;
         }
         /* FIXME: I think no else is needed here */
