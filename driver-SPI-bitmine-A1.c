@@ -439,9 +439,6 @@ static bool submit_ready_nonces( struct thr_info *thr, struct BTCG_chip *chip, c
 }
 
 static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
-#if 0
-    applog( LOG_ERR, "%s for chip %u", __func__, id);
-#endif
     struct cgpu_info *cgpu = thr->cgpu;
     struct BTCG_chain *chain = cgpu->device_data;
 
@@ -471,9 +468,6 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
 
 
     if ( chip->work) {
-#if 0
-        applog(LOG_ERR, "WE ARE HERE 11111111");
-#endif
         uint8_t status;
         if ( !chip_status( ctx, &status)) {
             applog(LOG_ERR, "Failed to get status for chip %u", id);
@@ -484,16 +478,10 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
          * Do NOT change the order without strong reason.
          */
         if (STATUS_R_READY( status)) {
-#if 0
-        applog(LOG_ERR, "CHIP R_READY");
-#endif
             // READ nonces
             const bool submit_succ =  submit_ready_nonces( thr, chip, status);
 
             /* DO always clean chip status */
-#if 1
-            applog(LOG_ERR, "chip_clean() for chip %u", id);
-#endif
             if ( !chip_clean( ctx)) {
                 applog(LOG_ERR, "Failed to clean status from chip %u", id);
                 FIX_CHIP_ERR_AND_RETURN;
@@ -504,14 +492,8 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
             }
         }
 
-        /* FIXME: For performance, I think I should write
-         * 'if (STATUS_W_ALLOW...)' but not 'else if (STATUS_W_ALLOW...)'
-         */
         if (STATUS_W_ALLOW(status)) {
             assert( chip->work);
-#if 0
-            applog(LOG_ERR, "CHIP W_ALLOW for chip %u", id);
-#endif
             if (chip->this_work_nonces == 0) {
                 applog(LOG_ERR, "Failed: no nonce calculated for work %p for chip %u",
                         chip->work, id);
@@ -532,9 +514,6 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
     }
 
     if ( chip->work == NULL) {
-#if 0
-        applog(LOG_ERR, "WE ARE HERE 222222");
-#endif
         struct work *new_work = wq_dequeue(&chain->active_wq);
         if (new_work == NULL) {
             applog(LOG_ERR, "queue under flow");
