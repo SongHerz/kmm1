@@ -22,9 +22,6 @@
 struct spi_ctx *spi_init(struct spi_config *config)
 {
 	char dev_fname[PATH_MAX];
-	
-	unsigned char cmdrst_tx[2];
-	
 	struct spi_ctx *ctx;
 
 	if (config == NULL)
@@ -48,38 +45,15 @@ struct spi_ctx *spi_init(struct spi_config *config)
 		close(fd);
 		return NULL;
 	}
-	struct spi_ioc_transfer spi_send_data;
-	
-	unsigned char send_data_tx[2];
-	unsigned char send_data_rx[2];
-	
-	//read reg 63
-	send_data_tx[0] = 0x7f;		// 'b10111111&address  
-	send_data_tx[1] = 0x01;	
-	
-	spi_send_data.tx_buf = (unsigned long)send_data_tx;
-    spi_send_data.rx_buf = (unsigned long)send_data_rx;
-    spi_send_data.len = 2;
-    spi_send_data.delay_usecs = 10;
-    spi_send_data.speed_hz = config->speed;
-    spi_send_data.bits_per_word = config->bits;
-	ioctl(fd, SPI_IOC_MESSAGE(1), &spi_send_data);
 
-	
-	applog(LOG_ERR, "SPI send %x", send_data_tx[0]);
-	applog(LOG_ERR, "SPI send %x", send_data_tx[1]);
-	
 	ctx = malloc(sizeof(*ctx));
 	assert(ctx != NULL);
 
 	ctx->fd = fd;
 	ctx->config = *config;
-	ctx->config.mode = 0;
 	applog(LOG_WARNING, "SPI '%s': mode=%hhu, bits=%hhu, speed=%u",
 	       dev_fname, ctx->config.mode, ctx->config.bits,
 	       ctx->config.speed);
-	applog(LOG_ERR, "SPI fd is  %x", ctx->fd);
-	
 	return ctx;
 }
 
