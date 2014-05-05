@@ -112,7 +112,7 @@ struct BTCG_config g_config = {
     // enough, and no too much failure messages.
     .work_timeout_ms = 10 * 1000,
 
-    .consecutive_err_threshold = 7,
+    .consecutive_err_threshold = 15,
     .hibernate_time_ms = 30 * 1000,
 };
 
@@ -250,7 +250,7 @@ static void CHIP_SHOW( const struct BTCG_chip *chip, bool show_work_info) {
         applog(LOG_WARNING, "this work nonces: %u", chip->this_work_nonces);
     }
     applog(LOG_WARNING, "total works: %u", chip->total_works);
-    applog(LOG_WARNING, "good works: %u", chip->good_works);
+    applog(LOG_WARNING, "good works: %u (%f%%)", chip->good_works, (float)(chip->good_works * 100.0 / chip->total_works));
     applog(LOG_WARNING, "total nonces: %u", chip->total_nonces);
     applog(LOG_WARNING, "consecutive errors: %u", chip->consec_errs);
     applog(LOG_WARNING, "max consecutive errors: %u", chip->max_consec_errs);
@@ -419,14 +419,8 @@ static bool submit_a_nonce(struct thr_info *thr, struct work *work,
  */
 static bool submit_ready_nonces( struct thr_info *thr, struct BTCG_chip *chip, const uint8_t status) {
 #if 0
-    // int start = get_current_ms();
-    applog( LOG_ERR, "thr = %p", thr);
-    // int end = get_current_ms();
-    // applog( LOG_ERR, "MS: %d", end - start);
-#else
-    usleep(10000);
+    usleep(10*1000);
 #endif
-
     assert( STATUS_R_READY( status));
     unsigned int grps[4];
     size_t num_grps = 0;
