@@ -14,9 +14,6 @@
 #define DEFAULT_SPI_SPEED		1500000
 #define DEFAULT_SPI_DELAY_USECS		0
 
-
-#define CLK_400MHZ
-
 struct spi_config {
 	int bus;
 	int cs_line;
