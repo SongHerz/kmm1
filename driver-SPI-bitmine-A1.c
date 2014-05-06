@@ -605,6 +605,11 @@ void BTCG_detect(bool hotplug)
         applog(LOG_ERR, "Failed to initialize chip selector");
         return;
     }
+    applog(LOG_ERR, "XXXXXXXXXXXXXXXXXXXX HARD RESET XXXXXXXXXXXX");
+    if (!chip_hard_rest_all()) {
+        applog(LOG_ERR, "Failed to reset the board");
+        return;
+    }
 	
     /* SPI configuration */
     struct spi_config cfg = default_spi_config;

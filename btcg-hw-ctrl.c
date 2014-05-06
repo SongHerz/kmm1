@@ -316,8 +316,28 @@ bool chip_selector_init() {
 }
 
 bool chip_select(uint8_t n) {
+    /* FIXME: I think the usleep is not necessary at all */
 	usleep(1500);
     int ret = write(fp_uart , &n , 1);
     usleep( 800);
     return ret == 1;
+}
+
+#define ALL_CHIP_HARD_RST_LOW   0x40
+#define ALL_CHIP_HARD_RST_HIGH  0x80
+
+bool chip_hard_rest_all() {
+    uint8_t c[3] = {
+        ALL_CHIP_HARD_RST_LOW,
+        ALL_CHIP_HARD_RST_HIGH,
+        ALL_CHIP_HARD_RST_LOW};
+    size_t i;
+    for ( i = 0; i < sizeof(c); ++i) {
+        int ret = write( fp_uart, c + i, 1);
+        if (ret != 1) {
+            return false;
+        }
+        usleep(3000);
+    }
+    return true;
 }
