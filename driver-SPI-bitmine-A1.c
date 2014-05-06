@@ -98,7 +98,7 @@ struct BTCG_config {
 };
 
 struct BTCG_config g_config = {
-    .num_chips = 14,
+    .num_chips = 32,
 
     .spi_clk_khz = 200,
 
