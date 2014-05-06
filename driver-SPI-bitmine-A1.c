@@ -149,6 +149,7 @@ struct BTCG_chip {
     unsigned int have_nonce_works;
     unsigned int no_nonce_works;
 	unsigned int total_nonces;
+    unsigned int local_rejected_nonces;
 
     /* consecutive errors */
     unsigned int consec_errs;
@@ -264,6 +265,7 @@ static void CHIP_SHOW( const struct BTCG_chip *chip, bool show_work_info) {
     applog(LOG_WARNING, "have nonce works: %u (%f%%)", chip->have_nonce_works, (float)(chip->have_nonce_works * 100.0 / chip->total_works));
     applog(LOG_WARNING, "no noce works: %u (%f%%)", chip->no_nonce_works, (float)(chip->no_nonce_works * 100.0 / chip->total_works));
     applog(LOG_WARNING, "total nonces: %u", chip->total_nonces);
+    applog(LOG_WARNING, "local rejected nonces: %u", chip->local_rejected_nonces);
     applog(LOG_WARNING, "consecutive errors: %u", chip->consec_errs);
     applog(LOG_WARNING, "max consecutive errors: %u", chip->max_consec_errs);
     applog(LOG_WARNING, "hardware errors: %u", chip->hw_errs);
@@ -473,6 +475,7 @@ static bool submit_ready_nonces( struct thr_info *thr, struct BTCG_chip *chip, c
         if (!submit_a_nonce( thr, chip->work, nonce, &actual_nonce)) {
             applog(LOG_ERR, "Chip %u: failed to submit nonce %u from nonce group %d",
                      chip->id, nonce, grps[i]);
+            chip->local_rejected_nonces += 1;
             all_submit_succ = false;
         }
         else {
