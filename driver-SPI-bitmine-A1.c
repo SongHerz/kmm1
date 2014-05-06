@@ -299,6 +299,26 @@ struct BTCG_board {
 	struct work_queue active_wq;
 };
 
+/* Operations on queue */
+static inline int __board_queue_max_buf_size( const struct BTCG_board *bd) {
+    assert( bd->num_chips > 0);
+    if ( bd->num_chips == 1) {
+        return 3;
+    }
+    else {
+        return bd->num_chips * 2;
+    }
+}
+
+static inline bool board_queue_full(const struct BTCG_board *bd) {
+    return bd->active_wq.num_elems >= __board_queue_max_buf_size(bd);
+}
+
+static inline bool board_queue_need_more_work(const struct BTCG_board *bd) {
+    assert( bd->num_chips > 0);
+    return bd->active_wq.num_elems <= 3 * __board_queue_max_buf_size(bd) / 5;
+}
+
 
 /********** temporary helper for hexdumping SPI traffic */
 static void applog_hexdump(char *prefix, uint8_t *buff, int len, int level)
@@ -675,9 +695,7 @@ static int64_t BTCG_scanwork(struct thr_info *thr)
 	mutex_lock(&bd->lock);
 
 	struct work *work;
-
-    size_t k;
-	for (k = 0; k < 10; k++) {
+	do {
         int id;
         for(id = 0;id < bd->num_chips; id++){
             if (id != 0 && id != 1 && id != 2 && id != 6 && id != 7 && id != 12 && id != 13) {
@@ -685,7 +703,7 @@ static int64_t BTCG_scanwork(struct thr_info *thr)
             }
             may_submit_may_get_work(thr, id);
         }		
-	}	
+	} while(!board_queue_need_more_work(bd));
 	
 	mutex_unlock(&bd->lock);
 	
@@ -705,7 +723,7 @@ static bool BTCG_queue_full(struct cgpu_info *cgpu)
 	applog(LOG_DEBUG, "BTCG running queue_full: %d/%d",
             bd->active_wq.num_elems, bd->num_chips);
 
-	if (bd->active_wq.num_elems >= bd->num_chips * 2)
+	if (board_queue_full(bd))
 		queue_full = true;
 	else{
 		//push queue
