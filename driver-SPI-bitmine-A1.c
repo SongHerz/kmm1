@@ -738,7 +738,7 @@ static bool BTCG_queue_full(struct cgpu_info *cgpu)
 		queue_full = true;
 	else{
 		//push queue
-		applog(LOG_ERR," queue elem add and num is %d",bd->active_wq.num_elems);
+		applog(LOG_DEBUG," queue elem add and num is %d",bd->active_wq.num_elems);
 		wq_enqueue(&bd->active_wq, get_queued(cgpu));
 	}
 	mutex_unlock(&bd->lock);
