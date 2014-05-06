@@ -294,10 +294,21 @@ struct BTCG_board {
 	int num_chips;
 	struct spi_ctx *spi_ctx;
 	struct BTCG_chip *chips;
+    unsigned int chip_to_be_scanned;
 	pthread_mutex_t lock;
 
 	struct work_queue active_wq;
 };
+
+/* Select a chip to scan */
+static inline unsigned int next_chip_id( struct BTCG_board *bd) {
+    assert( bd->num_chips > 0);
+    assert( bd->chip_to_be_scanned <= bd->num_chips);
+    if ( bd->chip_to_be_scanned == bd->num_chips) {
+        bd->chip_to_be_scanned = 0;
+    }
+    return bd->chip_to_be_scanned++;
+}
 
 /* Operations on queue */
 static inline int __board_queue_max_buf_size( const struct BTCG_board *bd) {
@@ -400,6 +411,8 @@ static struct BTCG_board *init_BTCG_board( struct cgpu_info *cgpu, struct spi_ct
 
 	bd->chips = calloc(bd->num_chips, sizeof(struct BTCG_chip));
 	assert (bd->chips != NULL);
+
+    bd->chip_to_be_scanned = 0;
 
 	applog(LOG_WARNING, "found %d chips", bd->num_chips);
 
@@ -695,15 +708,13 @@ static int64_t BTCG_scanwork(struct thr_info *thr)
 	mutex_lock(&bd->lock);
 
 	struct work *work;
-	do {
-        int id;
-        for(id = 0;id < bd->num_chips; id++){
-            if (id != 0 && id != 1 && id != 2 && id != 6 && id != 7 && id != 12 && id != 13) {
-                continue;
-            }
-            may_submit_may_get_work(thr, id);
-        }		
-	} while(!board_queue_need_more_work(bd));
+    do {
+        const unsigned int id = next_chip_id(bd);
+        if (id != 0 && id != 1 && id != 2 && id != 6 && id != 7 && id != 12 && id != 13) {
+            continue;
+        }
+        may_submit_may_get_work(thr, id);
+    } while(!board_queue_need_more_work(bd));
 	
 	mutex_unlock(&bd->lock);
 	
