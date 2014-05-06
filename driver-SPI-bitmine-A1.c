@@ -140,13 +140,16 @@ struct BTCG_chip {
      */
     struct timeval this_work_deadline;
     unsigned int this_work_nonces;
+    bool this_work_w_allow_has_been_low;
 
     /*********************/
 	/* global statistics */
     /*********************/
     unsigned int total_works;
-    unsigned int good_works;
+    unsigned int have_nonce_works;
+    unsigned int no_nonce_works;
 	unsigned int total_nonces;
+    unsigned int local_rejected_nonces;
 
     /* consecutive errors */
     unsigned int consec_errs;
@@ -185,11 +188,18 @@ struct BTCG_chip {
     __CHIP_INC_AVE(chip->ave_hw_errs);  \
 } while(0)
 
-#define CHIP_WORK_DONE_WITHOUT_ERR(chip)    do {    \
-    assert( chip->work != NULL);                    \
-    chip->good_works += 1;                          \
-    chip->consec_errs = 0;                          \
-    __CHIP_DEC_AVE(chip->ave_hw_errs);              \
+#define CHIP_WORK_DONE_WITH_NONCE(chip) do {    \
+    assert( chip->work != NULL);                \
+    chip->have_nonce_works += 1;                \
+    chip->consec_errs = 0;                      \
+    __CHIP_DEC_AVE(chip->ave_hw_errs);          \
+} while(0)
+
+#define CHIP_WORK_DONE_WITHOUT_NONCE(chip) do { \
+    assert( chip->work != NULL);                \
+    chip->no_nonce_works += 1;                  \
+    chip->consec_errs = 0;                      \
+    __CHIP_DEC_AVE(chip->ave_hw_errs);          \
 } while(0)
 
 /* Operations on work */
@@ -232,6 +242,7 @@ static void CHIP_NEW_WORK(struct cgpu_info *cgpu, struct BTCG_chip *chip, struct
         timerclear( &chip->this_work_deadline);
     }
     chip->this_work_nonces = 0;
+    chip->this_work_w_allow_has_been_low = false;
 }
 
 static inline bool CHIP_IS_WORK_TIMEOUT( const struct BTCG_chip *chip) {
@@ -248,10 +259,13 @@ static void CHIP_SHOW( const struct BTCG_chip *chip, bool show_work_info) {
     if (show_work_info) {
         applog(LOG_WARNING, "work: %p", chip->work);
         applog(LOG_WARNING, "this work nonces: %u", chip->this_work_nonces);
+        applog(LOG_WARNING, "this work w_allow has been low: %u", chip->this_work_w_allow_has_been_low);
     }
     applog(LOG_WARNING, "total works: %u", chip->total_works);
-    applog(LOG_WARNING, "good works: %u (%f%%)", chip->good_works, (float)(chip->good_works * 100.0 / chip->total_works));
+    applog(LOG_WARNING, "have nonce works: %u (%f%%)", chip->have_nonce_works, (float)(chip->have_nonce_works * 100.0 / chip->total_works));
+    applog(LOG_WARNING, "no noce works: %u (%f%%)", chip->no_nonce_works, (float)(chip->no_nonce_works * 100.0 / chip->total_works));
     applog(LOG_WARNING, "total nonces: %u", chip->total_nonces);
+    applog(LOG_WARNING, "local rejected nonces: %u", chip->local_rejected_nonces);
     applog(LOG_WARNING, "consecutive errors: %u", chip->consec_errs);
     applog(LOG_WARNING, "max consecutive errors: %u", chip->max_consec_errs);
     applog(LOG_WARNING, "hardware errors: %u", chip->hw_errs);
@@ -461,6 +475,7 @@ static bool submit_ready_nonces( struct thr_info *thr, struct BTCG_chip *chip, c
         if (!submit_a_nonce( thr, chip->work, nonce, &actual_nonce)) {
             applog(LOG_ERR, "Chip %u: failed to submit nonce %u from nonce group %d",
                      chip->id, nonce, grps[i]);
+            chip->local_rejected_nonces += 1;
             all_submit_succ = false;
         }
         else {
@@ -540,21 +555,35 @@ static void may_submit_may_get_work(struct thr_info *thr, unsigned int id) {
                 if (STATUS_W_ALLOW(status)) {
                     assert( chip->work);
                     if (chip->this_work_nonces == 0) {
-                        applog(LOG_ERR, "Chip %u: no nonce calculated for work %p",
-                                id, chip->work);
-                        FIX_CHIP_ERR_MAY_GOING_HIBERNATE_AND_RETURN;
+                        // Without nonce
+                        if ( chip->this_work_w_allow_has_been_low) {
+                            CHIP_WORK_DONE_WITHOUT_NONCE( chip);
+                            CHIP_NEW_WORK( cgpu, chip, NULL);
+                        }
+                        else {
+                            applog(LOG_ERR, "Chip %u: No w_allow low level detected, and no nonce calculated for work %p",
+                                    id, chip->work);
+                            FIX_CHIP_ERR_MAY_GOING_HIBERNATE_AND_RETURN;
+                        }
                     }
-                    CHIP_WORK_DONE_WITHOUT_ERR( chip);
-                    CHIP_NEW_WORK( cgpu, chip, NULL);
-                }
-                else if ( CHIP_IS_WORK_TIMEOUT( chip)) {
-                    // check w_allow timeout
-                    applog(LOG_ERR, "Chip %u: work time out", id);
-                    FIX_CHIP_ERR_MAY_GOING_HIBERNATE_AND_RETURN;
+                    else {
+                        // With nonce
+                        CHIP_WORK_DONE_WITH_NONCE( chip);
+                        CHIP_NEW_WORK( cgpu, chip, NULL);
+                    }
                 }
                 else {
-                    assert( STATUS_R_READY( status) || STATUS_BUSY( status));
-                    return;
+                    chip->this_work_w_allow_has_been_low = true;
+
+                    if ( CHIP_IS_WORK_TIMEOUT( chip)) {
+                        // check w_allow timeout
+                        applog(LOG_ERR, "Chip %u: work time out", id);
+                        FIX_CHIP_ERR_MAY_GOING_HIBERNATE_AND_RETURN;
+                    }
+                    else {
+                        assert( STATUS_R_READY( status) || STATUS_BUSY( status));
+                        return;
+                    }
                 }
             }
 
